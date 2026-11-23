@@ -27,7 +27,9 @@ def _cut(name: str) -> str:
     else:
         raise AssertionError(name)
     if head.startswith("const"):
-        return REPORT[i:REPORT.index("\n", i)]
+        line = REPORT[i:REPORT.index("\n", i)]
+        if line.count("{") == line.count("}"):
+            return line
     depth, j = 0, REPORT.index("{", i)
     while True:
         depth += REPORT[j] == "{"
@@ -144,3 +146,22 @@ def test_숫자로_끝나는_익명_이름에도_조사를_고른다():
 
 def test_인수자금_칸이_모두_비면_그렇게_적는다():
     assert "인수자금 조달방법 칸(자기자금·차입금·차입처·담보 내역)은 모두 비어 있다" in REPORT
+
+
+@node
+def test_칸_폭에_꺾인_줄은_잇고_항목은_가른다():
+    src = ["1. 채무자의 대출 기한이익상실에 따른\n채권자의 담보처분권 취득\n2. 담보처분권 행사\n\n※ 본 건은 처분권을 취득한 것으로",
+           "주식담보계약 계약 기간 연장\n특수관계인의 물상담보제공 해제\n주식병합에 따른 주식수 변동",
+           "운영자금 (6,303)\n채무상환자금 (25,000)"]
+    out = _run(["tidyLines"], json.dumps(src, ensure_ascii=False) + ".map(tidyLines)")
+    assert out == ["1. 채무자의 대출 기한이익상실에 따른 채권자의 담보처분권 취득 / 2. 담보처분권 행사 / ※ 본 건은 처분권을 취득한 것으로",
+                   "주식담보계약 계약 기간 연장 / 특수관계인의 물상담보제공 해제 / 주식병합에 따른 주식수 변동",
+                   "운영자금 (6,303) / 채무상환자금 (25,000)"]
+
+
+def test_특이사항_없음은_사실로_싣지_않는다():
+    assert r"(해당\s*사항|특이\s*사항)?\s*없음" in REPORT
+
+
+def test_인수자금이_0으로_와도_비어_있다고_적는다():
+    assert "!toNum(x.self_fund) && !toNum(x.borrowed_fund)" in REPORT

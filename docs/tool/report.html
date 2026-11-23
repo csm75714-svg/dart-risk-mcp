@@ -284,8 +284,18 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* 사
 const squash = (s) => String(s || "").replace(/\s+/g, "");
 /** DART 제목은 칸 맞춤용 공백이 길게 붙어 온다(「기타시장안내              (…)」) — 한 칸으로 접는다. */
 const tidyTitle = (s) => String(s || "").replace(/\s+/g, " ").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")").trim();
-/** 여러 줄 보고 사유를 한 줄로 — 줄마다 앞의 「- 」·번호 공백을 걷고 「 / 」로 잇는다. */
-const tidyLines = (s) => String(s || "").split(/\r?\n/).map(x => x.replace(/^\s*-\s*/, "").replace(/\s+/g, " ").trim()).filter(Boolean).join(" / ");
+/** 여러 줄 보고 사유를 한 줄로. 항목이 바뀌는 줄바꿈은 「 / 」로, 문장이 칸 폭에 밀려 꺾인
+ *  줄바꿈(앞 줄이 「…따른」·「…채권자의」처럼 조사·어미로 끝남)은 띄어쓰기로 잇는다. */
+const tidyLines = (s) => {
+  const lines = String(s || "").split(/\r?\n/).map(x => x.replace(/^\s*-\s*/, "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  let out = "";
+  for (const l of lines) {
+    if (!out) { out = l; continue; }
+    const wrapped = /[의은는을를에로른한및과와,]$/.test(out) && !/^(※|\d+[.)])/.test(l);
+    out += (wrapped ? " " : " / ") + l;
+  }
+  return out;
+};
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 function kstToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
@@ -942,7 +952,7 @@ function buildFacts(D) {
   if (latest) {
     const x = latest.x, src = { title: latest.d.report_nm, rcp: latest.d.rcept_no, de: latest.d.rcept_dt };
     add("확인된 사실", `${fmtKo(latest.d.rcept_dt)} ${latest.d.amend ? "정정 공시한 " : ""}'${latest.d.report_nm}' 기준 최대주주는 ${x.prev_holder || "(변경 전 미기재)"}에서 ${x.new_holder}${x.new_ratio ? `(소유비율 ${x.new_ratio}%)` : ""}${josaRo(x.new_holder)} 바뀌었다.`, src, true, "", 1);
-    if (x.self_fund == null && x.borrowed_fund == null && !x.lender && !x.collateral)
+    if (!toNum(x.self_fund) && !toNum(x.borrowed_fund) && !x.lender && !x.collateral)
       add("확인된 사실", "같은 공시의 인수자금 조달방법 칸(자기자금·차입금·차입처·담보 내역)은 모두 비어 있다(「-」).", src, false, "", 3);
     else add("확인된 사실", `같은 공시의 인수자금 조달방법은 자기자금 ${won(x.self_fund)}, 차입금 ${won(x.borrowed_fund)}${x.lender ? `(차입처 ${x.lender})` : ""}${x.collateral ? `, 담보 내역 ${x.collateral}` : ""}로 적혀 있다.`, src, false, "", 3);
     if (x.reason && !F.some(f => f.kind === "회사 설명" && sameText(f.text, x.reason))) add("회사 설명", `변경 사유: ${x.reason}`, src, true, "", 2);
@@ -966,7 +976,7 @@ function buildFacts(D) {
     for (let i = 1; i < au.length; i++) if (au[i].adtor && au[i - 1].adtor && squash(au[i].adtor) !== squash(au[i - 1].adtor))
       add("확인된 사실", `${au[i].yr}년 감사인이 ${au[i - 1].adtor}에서 ${au[i].adtor}${josaRo(au[i].adtor)} 바뀌었다.`, { title: "사업보고서 · 감사인" }, true, "", 3);
     for (const a of au) if (/거절|한정|부적정/.test(a.adt_opinion || "")) add("확인된 사실", `${a.yr}년 감사의견은 '${a.adt_opinion}'이다.`, { title: "사업보고서 · 감사의견" }, true, "", 1);
-    for (const a of au) { const e = (a.emphs_matter || "").trim(); if (e && e !== "-" && e !== "해당사항 없음") add("확인된 사실", `${a.yr}년 감사보고서 강조사항 등: ${e}`, { title: "사업보고서 · 감사의견" }, true, "", 2); }
+    for (const a of au) { const e = (a.emphs_matter || "").trim(); if (e && !/^(-|(해당\s*사항|특이\s*사항)?\s*없음)$/.test(e)) add("확인된 사실", `${a.yr}년 감사보고서 강조사항 등: ${e}`, { title: "사업보고서 · 감사의견" }, true, "", 2); }
   }
   // 6) 자금 사용 — 계획 대비 차이
   for (const f of (D.funds ? D.funds.rows : [])) {
@@ -1426,7 +1436,7 @@ function articleMaterial(D) {
   const funds = D.funds ? D.funds.rows : [];
   if (funds.length) {
     L.push(""); L.push(`■ 공모·사모 자금 사용 (${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준)`);
-    funds.forEach(f => L.push(`- ${f.kind} ${f.tm || "-"}회차 · 계획 '${f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-"}' ${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))} · 사용 '${f.real_cptal_use_dtls_cn || "-"}' ${eok(toNum(f.real_cptal_use_dtls_amount))}${f.dffrnc_occrrnc_resn && f.dffrnc_occrrnc_resn !== "-" ? ` · 차이 사유: ${f.dffrnc_occrrnc_resn}` : ""}`));
+    funds.forEach(f => L.push(`- ${f.kind} ${f.tm || "-"}회차 · 계획 '${tidyLines(f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps) || "-"}' ${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))} · 사용 '${tidyLines(f.real_cptal_use_dtls_cn) || "-"}' ${eok(toNum(f.real_cptal_use_dtls_amount))}${f.dffrnc_occrrnc_resn && f.dffrnc_occrrnc_resn !== "-" ? ` · 차이 사유: ${f.dffrnc_occrrnc_resn}` : ""}`));
   }
   const ctl = (D.control || []);
   if (ctl.length) {
