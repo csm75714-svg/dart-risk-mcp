@@ -188,4 +188,6 @@ def test_최저조정가액_비율은_소수_두_자리다():
 
 
 def test_최저조정가액은_진단_노트_묶음_세_곳에_있다():
-    assert REPORT.count("refixFloor(b)") - REPORT.count("function refixFloor(b)") == 3
+    # 세 곳 모두 cbRowCells(진단·노트)·cbBundleLine(기사 묶음)을 거친다 — 철회·미기재 처리가 한 곳에 있다
+    assert REPORT.count("cbRowCells(b, D,") == 2 and REPORT.count("cbBundleLine(b, D)") == 1
+    assert "refixFloor(b)" in REPORT[REPORT.index("const cbRowCells"):REPORT.index("/* ───────────────────────── ③ 팩트시트")]
