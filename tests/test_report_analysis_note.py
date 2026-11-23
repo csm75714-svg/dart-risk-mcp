@@ -12,7 +12,7 @@ SRC = PAGE.read_text(encoding="utf-8")
 
 def _note_block() -> str:
     start = SRC.index("/* ───────────────────────── ⑤ 분석 노트")
-    end = SRC.index("async function copy(text, btn)")
+    end = SRC.index("/* ───────────────────────── ⑥ 기사 초안")
     return SRC[start:end]
 
 
@@ -34,3 +34,22 @@ def test_못_받은_자료를_없다로_적지_않는다():
     block = _note_block()
     assert "받지 못했다" in block
     assert "자료가 없다는 뜻이 아님" in block
+
+
+def _article_block() -> str:
+    start = SRC.index("/* ───────────────────────── ⑥ 기사 초안")
+    end = SRC.index("async function copy(text, btn)")
+    return SRC[start:end]
+
+
+def test_기사_묶음은_AI를_부르지_않는다():
+    block = _article_block()
+    # 이 단계는 프롬프트와 자료를 묶어 복사만 한다 — 외부 모델 호출이 없어야 한다
+    assert "anthropic" not in block.lower()
+    assert "fetch(" not in block
+
+
+def test_기사_묶음은_무응답을_확정하지_않는다():
+    block = _article_block()
+    assert "회신 대기 중" in block
+    assert "무응답으로 확정하지 말 것" in block
