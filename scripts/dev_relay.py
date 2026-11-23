@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dart_risk_mcp.core.krx_client import KRX_API_IDS, KRX_BASE, _normalize_row  # noqa: E402
 from tool_server.corp import handle_corp  # noqa: E402
 from tool_server.doc import handle_doc  # noqa: E402
+from tool_server.grep import handle_grep  # noqa: E402
 
 ALLOWED_ENDPOINTS = {"list.json", "company.json",
                      "fnlttSinglAcnt.json", "accnutAdtorNmNdAdtOpinion.json",
@@ -202,6 +203,18 @@ class RelayHandler(SimpleHTTPRequestHandler):
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")  # 로컬은 캐시 불필요
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if parts.path == "/api/grep":
+            # 보고서 페이지(report.html)의 원문 문구 검색 — api/grep.py와 같은 계약.
+            query = dict(parse_qsl(parts.query))
+            api_key = (self.headers.get("X-DART-Key") or "").strip() or _env_key()
+            status, body = handle_grep(query, api_key)
+            payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(payload)
             return
