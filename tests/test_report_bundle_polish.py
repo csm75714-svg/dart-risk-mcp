@@ -144,3 +144,10 @@ def test_숫자로_끝나는_익명_이름에도_조사를_고른다():
 
 def test_인수자금_칸이_모두_비면_그렇게_적는다():
     assert "인수자금 조달방법 칸(자기자금·차입금·차입처·담보 내역)은 모두 비어 있다" in REPORT
+
+
+@node
+def test_시장_이름은_코넥스와_기타를_가른다():
+    out = _run(["corpCls", "mktName"], '["Y","K","N","E",""].map(mktName)')
+    assert out == ["코스피", "코스닥", "코넥스", "기타(비상장)", "-"]
+    assert 'c.corp_cls === "K" ? "코스닥" : "코넥스"' not in REPORT   # 코스닥이 아니면 다 코넥스라 부르던 자리

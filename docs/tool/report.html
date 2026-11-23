@@ -576,7 +576,7 @@ function renderCands() {
   $("#candTbl").innerHTML = `<tr><th>회사</th><th>걸린 유형</th><th>최근</th><th></th></tr>` + CANDS.map((c, i) => {
     const last = c.docs.reduce((m, d) => d.rcept_dt > m ? d.rcept_dt : m, "");
     return `<tr>
-      <td><b>${esc(c.corp_name)}</b><br><span class="dim small">${c.corp_cls === "Y" ? "코스피" : c.corp_cls === "K" ? "코스닥" : "코넥스"} ${esc(c.stock_code || "")}</span></td>
+      <td><b>${esc(c.corp_name)}</b><br><span class="dim small">${esc(mktName(c.corp_cls))} ${esc(c.stock_code || "")}</span></td>
       <td>${chipsFor(c.hits, c.manyAmend, c.amend)}
         <details class="small"><summary class="dim">공시 ${c.docs.length}건 보기</summary>
           ${c.docs.map(d => `<div>${fmtDe(d.rcept_dt)} <a href="${dartLink(d.rcept_no)}" target="_blank" rel="noopener">${esc(d.report_nm)}</a></div>`).join("")}
@@ -805,7 +805,7 @@ function renderDiag(D) {
     ${D.errors.length ? `<div class="note">일부를 조회하지 못했습니다(자료가 없다는 뜻이 아닙니다): ${D.errors.map(esc).join(" · ")}</div>` : ""}
     <div class="grid2 small">
       <div><span class="dim">대표</span> ${esc(c.ceo_nm || "-")}</div>
-      <div><span class="dim">시장·종목코드</span> ${c.corp_cls === "Y" ? "코스피" : c.corp_cls === "K" ? "코스닥" : esc(c.corp_cls || "-")} ${esc(c.stock_code || "")}</div>
+      <div><span class="dim">시장·종목코드</span> ${esc(mktName(c.corp_cls))} ${esc(c.stock_code || "")}</div>
       <div><span class="dim">본점</span> ${esc(c.adres || "-")}</div>
       <div><span class="dim">결산월</span> ${esc(c.acc_mt || "-")}월 · <span class="dim">설립</span> ${fmtDe(c.est_dt)}</div>
     </div>
@@ -1150,6 +1150,8 @@ const NOTE_CSS = `
 `;
 
 const corpCls = (c) => c === "Y" ? "코스피" : c === "K" ? "코스닥" : c === "N" ? "코넥스" : "";
+/** 화면 표시용 시장 이름 — DART corp_cls는 Y·K·N·E 넷뿐이다. E(기타)는 상장사가 아니므로 corpCls(「… 상장사」 문장용)와 따로 둔다. */
+const mktName = (c) => corpCls(c) || (c === "E" ? "기타(비상장)" : (c || "-"));
 
 /** 진단이 끝났을 때·⑤를 열 때 입력 칸 기본값을 채운다(이미 고친 값은 회사가 바뀔 때만 덮는다). */
 function initNote(D) {
