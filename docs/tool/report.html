@@ -89,7 +89,7 @@ pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 <header>
   <div class="wrap">
     <div class="top">
-      <h1>공시 취재 보고서 <span class="dim small">· 후보 발굴부터 질의서·분석 노트까지</span></h1>
+      <h1>공시 취재 보고서 <span class="dim small">· 후보 발굴부터 분석 노트·기사 초안까지</span></h1>
       <button class="btn ghost sm" id="btnSettings">설정 (DART 키·발신자)</button>
     </div>
     <nav class="steps" id="steps">
@@ -98,6 +98,7 @@ pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <button data-step="3">③ 팩트시트</button>
       <button data-step="4">④ 질의서</button>
       <button data-step="5">⑤ 분석 노트</button>
+      <button data-step="6">⑥ 기사 초안</button>
     </nav>
   </div>
 </header>
@@ -243,6 +244,27 @@ pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       </div>
     </div>
     <div id="notePreview"></div>
+  </div>
+</section>
+
+<!-- ⑥ 기사 초안 -->
+<section class="step" data-step="6">
+  <div class="card" id="artEmpty"><p class="dim">② 종합 진단을 먼저 실행하세요. ③ 팩트시트·⑤ 분석 노트에서 고친 내용이 그대로 들어갑니다.</p></div>
+  <div id="artWrap" style="display:none">
+    <div class="card">
+      <h2>⑥ 기사 초안 — IR 리스크 스트레이트 기사용 묶음</h2>
+      <p class="small dim">이 페이지는 기사를 직접 쓰지 않습니다. 기사 작성 지침(프롬프트)과 지금까지 모은 자료를 한 덩어리로 묶어 드립니다.
+        <b>「묶음 복사」를 누른 뒤 Claude 대화창에 붙여 넣으면</b> 핵심 야마·사실 구분·비판 지점을 먼저 정리하고 역피라미드 기사 초안을 씁니다.</p>
+      <div class="row" style="margin:6px 0"><label style="display:flex;gap:6px;align-items:center;color:var(--tx)"><input type="checkbox" id="aSent"> 질의서를 보냈다</label></div>
+      <div><label>회사 답변 (받았으면 그대로 붙여 넣기)</label><textarea id="aAnswer" placeholder="답변 원문. 없으면 비워 두세요 — 비어 있으면 '회신 대기 중'으로 적힙니다."></textarea></div>
+      <div style="margin-top:8px"><label>추가 메모 (선택 — 취재로 따로 확인한 사실, 강조할 쟁점 등)</label><textarea id="aMemo"></textarea></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnArtCopy">묶음 복사</button>
+        <button class="btn ghost" id="btnArtRefresh">다시 묶기</button>
+        <span class="small dim" id="artLen"></span>
+      </div>
+    </div>
+    <div class="card"><textarea id="artOut" style="min-height:520px;font-size:13px;line-height:1.65" readonly></textarea></div>
   </div>
 </section>
 
@@ -672,6 +694,7 @@ function renderDiag(D) {
     </div>
     <div class="row" style="margin-top:10px"><button class="btn" onclick="go(3)">팩트시트로 →</button>
       <button class="btn ghost" onclick="document.querySelector('#steps [data-step=&quot;5&quot;]').click()">분석 노트로 →</button>
+      <button class="btn ghost" onclick="document.querySelector('#steps [data-step=&quot;6&quot;]').click()">기사 초안 묶음 →</button>
       <a class="small" href="${newsLink(c.corp_name || D.name)}" target="_blank" rel="noopener">보도 확인 ↗</a></div>
   </div>
 
@@ -1118,6 +1141,144 @@ $("#btnNotePrint").onclick = () => {
   w.onload = () => setTimeout(() => w.print(), 300);
 };
 $("#steps").addEventListener("click", (e) => { if (e.target.dataset.step === "5" && DIAG) { if (NOTE.cc !== DIAG.cc) initNote(DIAG); renderNote(); } });
+
+/* ───────────────────────── ⑥ 기사 초안(프롬프트 묶음) ─────────────────────────
+ * 이 페이지는 기사를 직접 쓰지 않는다(AI 호출 없음). IR 리스크 기사용 프롬프트와
+ * 진단·팩트시트·노트 자료를 한 덩어리 텍스트로 묶어 복사하게 한다 — 이용자가
+ * Claude 대화창에 붙여 넣어 초안을 받는다. 자료는 이 화면에 이미 있는 것만 쓴다.
+ */
+const ARTICLE_PROMPT = `너는 DART 공시 분석 노트를 바탕으로 상장사의 IR 리스크를 다루는 스트레이트 기사를 쓰는 기자의 취재·편집 파트너다. 노트의 항목을 요약하거나 나열하지 말고, 공시로 확인된 사실을 통해 투자자가 놓치기 쉬운 이 회사의 핵심 리스크가 무엇이고 왜 보도할 가치가 있는지 독자가 이해하도록 쓴다.
+
+여기서 IR 리스크란 투자자가 회사의 공시·설명만으로는 알아차리기 어렵지만 투자 판단에 영향을 주는 문제를 말한다. 예: 조달 자금이 약속한 용도와 다르게 쓰이거나 배분 순위가 바뀐 것, 주관사·최대주주와의 이해상충, 재무제표 정정·감사의견 변화, 같은 공시의 반복 정정, 실적과 자금 조달 행태의 괴리.
+
+입력으로 받는 자료는 아래 [자료]에 있다.
+- 분석 노트: 공시 흐름, 확인된 사실(공시명·접수일 근거 포함), 회사 설명(공시 원문 인용), 거래 구조 표, 재무·감사·자금 사용 표, 남은 질문
+- (있으면) 질의서와 회사 답변
+
+곧바로 기사부터 쓰지 말고 다음을 먼저 정리하라.
+
+1. 핵심 야마
+- 노트에서 드러나는 IR 리스크 가운데 가장 중요한 것을 한 문장으로 제시한다.
+- 여러 쟁점이 있으면 공시 근거가 가장 강하고 투자자에게 미치는 영향이 가장 분명한 것 하나를 중심으로 잡는다.
+- 노트의 자료가 뒷받침하지 못하는 야마를 억지로 만들지 않는다. 쟁점이 약하면 그렇다고 말한다.
+- 단순히 공시가 많다거나 정정이 있었다는 사실을 넘어, 투자자에게 알려야 할 이유를 설명한다.
+
+2. 기사에 반영할 사실과 근거
+- 「공시로 확인된 사실」, 「회사가 공시에 적은 설명」, 「회사 답변」, 「아직 확인되지 않은 사항」을 구분한다.
+- 핵심 사실마다 근거 공시를 연결한다(공시명, 접수일). 숫자는 노트에 적힌 값만 쓴다.
+- 공시가 직접 증명하는 범위를 명확히 한다. 예: 자금 사용 내역에 '채무상환'이 기재된 사실과 그 상환이 부당했다는 것은 다르다.
+- 노트에 없는 날짜·금액·인물·경위를 보충하지 않는다. 회사 설명은 회사의 주장으로 다룬다.
+
+3. 공시에 근거해 비판할 수 있는 부분
+- 공시로 확인된 행위나 처리 방식 가운데 무엇을 문제 삼을 수 있는지 구체적으로 제시한다.
+- 회사가 투자자에게 약속한 내용(증권신고서·결정 공시)과 실제 기재 내용(정기보고서·결과 보고) 사이의 차이, 정정 과정에서 바뀐 내용, 이해관계자 간 이익과 손해의 비대칭, 투자자에게 알린 시점과 방식을 살핀다.
+- 비판의 근거와 한계를 함께 짚는다. 확인이 더 필요한 부분을 이미 입증된 문제처럼 쓰지 않는다.
+- 위법이 확인되지 않았더라도 공시로 확인된 사실만으로 설명할 수 있는 공시·자금 운용의 문제는 분명히 짚는다.
+- 회사가 답하지 않았다는 이유만으로 의혹을 인정했다거나 회피했다고 단정하지 않는다.
+
+4. 기사 구성
+- 문제 제기 → 핵심 공시 근거 → 일반 투자자를 위한 문제점 설명 → 회사 입장과 확인된 후속 조치 순서로 구성한다.
+- 리드에는 핵심 행위와 투자자 관점의 문제를 먼저 제시하고, 중요한 금액·날짜를 반영한다.
+- 공시 내용을 소개한 뒤에는 그 사실이 투자자에게 왜 중요한지 설명한다. 표를 문장으로 옮겨 나열하는 데 그치지 않는다.
+- 회사 설명 가운데 핵심 쟁점에 영향을 주는 내용은 해당 사실 바로 가까이에 둔다.
+- 야마와 관련이 약한 공시는 줄이거나 뺀다.
+
+위 내용을 간결하게 제시한 뒤 기사 초안(제목, 부제, 본문)을 이어서 작성한다.
+
+기사 작성 원칙:
+- 공시로 확인된 사실은 직설적이고 명확하게 쓴다. '주장했다'는 회사 설명이나 확인되지 않은 진술에만 쓴다.
+- 의도, 인과관계, 책임, 위법성, 부실 여부를 공시 근거 없이 단정하지 않는다.
+- 위험 등급·점수, '부실 기업', '작전 의심' 같은 판정 표현을 쓰지 않는다. 투자 권유나 주가 전망을 쓰지 않는다.
+- '논란이 예상된다', '우려가 나온다'처럼 주체와 근거가 없는 표현으로 비판을 대신하지 않는다.
+- 불필요한 법적 방어 문구나 반복적인 '확인이 필요하다'로 핵심을 흐리지 않는다. 확인되지 않은 부분은 정확히 구분한다.
+- 유상증자, 전환사채, 리픽싱, 대표주관회사, 감사의견 같은 용어는 일반 독자가 문제를 이해하는 데 필요한 만큼만 쉽게 풀어 쓴다.
+- 제목은 핵심 행위와 투자자 관점의 문제를 드러내도록 작성한다. '공시 분석', '자료 입수'처럼 분석 행위를 제목의 중심에 두지 않는다.
+- 회사 입장과 회신 여부는 실제 취재 경과에 맞게 적는다. 질의서에 대한 답변이 아직 없으면 "답변을 받지 못했다"로 확정하지 말고 회신 대기 중임을 표시해 둔다.
+- 금액은 억원 단위로 쓰되 노트의 값과 어긋나지 않게 하고, 공시 날짜는 '○월 ○일 공시한 ○○○에 따르면' 식으로 출처와 함께 밝힌다.
+
+마지막으로 제목·리드·본문이 하나의 IR 리스크를 가리키는지, 역피라미드 구조인지, 제목과 리드가 공시 근거보다 앞서가지 않는지 점검하고 그 결과를 한두 줄로 덧붙인다.`;
+
+/** 진단·팩트시트·노트를 사람이 읽는 평문으로 묶는다(새 조회 없음). */
+function articleMaterial(D) {
+  const c = D.company || {}; const docs = D.docs || []; const today = kstToday();
+  const L = []; const src = (f) => f.src ? `${(f.src.title || "직접 입력")}${f.src.de ? ` · ${fmtDe(f.src.de)}` : ""}${f.src.rcp ? ` · 접수번호 ${f.src.rcp}` : ""}` : "직접 입력";
+  L.push(`■ 대상: ${c.corp_name || D.name}${c.stock_code ? ` (${corpCls(c.corp_cls)} ${c.stock_code})` : ""}${c.ceo_nm ? ` · 대표 ${c.ceo_nm}` : ""}`);
+  L.push(`■ 조회 기간: ${fmtDe(ymd(addDays(today, -365)))} ~ ${fmtDe(ymd(today))} (DART 공시 ${docs.length}건, 정정 ${docs.filter(d => d.amend).length}건)`);
+  const head = `${$("#nH1") ? $("#nH1").value : ""} ${$("#nH2") ? $("#nH2").value : ""}`.trim();
+  if (head) L.push(`■ 분석 노트 제목(기자 작성): ${head}`);
+  L.push("");
+  L.push("■ 유형별 공시 (최근 1년)");
+  const hits = RULES.map(r => [r, docs.filter(d => d.rules.includes(r.id)).sort((a, b) => b.rcept_no.localeCompare(a.rcept_no))]).filter(([, a]) => a.length);
+  if (!hits.length) L.push("- 유형 규칙에 걸린 공시 없음");
+  for (const [r, a] of hits) {
+    L.push(`- ${r.label} ${a.length}건`);
+    a.slice(0, 8).forEach(d => L.push(`  · ${fmtDe(d.rcept_dt)} ${d.report_nm} (접수번호 ${d.rcept_no})`));
+    if (a.length > 8) L.push(`  · 외 ${a.length - 8}건`);
+  }
+  L.push("");
+  const facts = FACTS.filter(f => f.kind === "확인된 사실" && f.text.trim());
+  const said = FACTS.filter(f => f.kind === "회사 설명" && f.text.trim());
+  L.push("■ 공시로 확인된 사실");
+  if (!facts.length) L.push("- (없음)");
+  facts.forEach(f => L.push(`- ${f.text.trim()} [근거: ${src(f)}]`));
+  L.push("");
+  L.push("■ 회사가 공시에 적은 설명 (원문 인용 — 회사 주장)");
+  if (!said.length) L.push("- (없음)");
+  said.forEach(f => L.push(`- “${f.text.trim()}” [근거: ${src(f)}]`));
+  const S = NOTE && NOTE.struct;
+  if (S && !S.error) {
+    L.push("");
+    L.push(`■ 거래 구조 — ${fmtDe(S.d.rcept_dt)} ${S.d.report_nm} (접수번호 ${S.d.rcept_no}) 원문에서 찾은 첫 문장`);
+    S.rows.forEach(r => L.push(`- ${r.term}: ${r.hit ? r.hit.text : "원문에서 찾지 못함(확인 필요)"}`));
+  }
+  const ft = finTable(D.fin);
+  L.push("");
+  if (ft && ft.out.length) {
+    L.push(`■ 주요 재무 (${ft.yr}년 사업보고서 · ${ft.basis}, 단위 억원 반올림)`);
+    ft.out.forEach(r => L.push(`- ${r.lab}: ${ft.yr - 2}년 ${eok(r.prev2)} / ${ft.yr - 1}년 ${eok(r.prev)} / ${ft.yr}년 ${eok(r.cur)}`));
+  } else L.push("■ 주요 재무: 사업보고서 재무 자료를 받지 못함(자료가 없다는 뜻이 아님)");
+  const au = (D.audit || []).slice().sort((a, b) => a.yr - b.yr);
+  if (au.length) { L.push(""); L.push("■ 감사인·감사의견"); au.forEach(a => L.push(`- ${a.yr}년 ${a.adtor || "-"} '${a.adt_opinion || "-"}'${a.emphs_matter && a.emphs_matter !== "-" ? ` · 강조사항 등: ${a.emphs_matter}` : ""}`)); }
+  const funds = D.funds ? D.funds.rows : [];
+  if (funds.length) {
+    L.push(""); L.push(`■ 공모·사모 자금 사용 (${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준)`);
+    funds.forEach(f => L.push(`- ${f.kind} ${f.tm || "-"}회차 · 계획 '${f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-"}' ${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))} · 사용 '${f.real_cptal_use_dtls_cn || "-"}' ${eok(toNum(f.real_cptal_use_dtls_amount))}${f.dffrnc_occrrnc_resn && f.dffrnc_occrrnc_resn !== "-" ? ` · 차이 사유: ${f.dffrnc_occrrnc_resn}` : ""}`));
+  }
+  if ((D.cb || []).length) { L.push(""); L.push("■ 전환사채 발행 결정 (최근 1년)"); D.cb.forEach(b => L.push(`- ${b.bd_tm || "-"}회차 · 권면총액 ${eok(toNum(b.bd_fta))} · 전환가액 ${b.cv_prc || "-"} · 접수번호 ${b.rcept_no}`)); }
+  const qs = FACTS.filter(f => f.kind === "미확인" && f.on && f.text.trim());
+  L.push(""); L.push("■ 아직 확인되지 않은 사항 (질의서 질문)");
+  if (!qs.length) L.push("- (없음)");
+  qs.forEach(f => L.push(`- [${(f.topic || "질문").replace(/\s*관련$/, "")}] ${f.text.trim()}`));
+  const crit = [["누가 가장 이익인가", $("#cGain").value], ["누가 가장 손해인가", $("#cLoss").value], ["과정이 공정한가", $("#cFair").value]].filter(([, v]) => v.trim());
+  if (crit.length) { L.push(""); L.push("■ 기자 메모 — 세 가지 기준"); crit.forEach(([k, v]) => L.push(`- ${k}: ${v.trim().replace(/\n+/g, " / ")}`)); }
+  L.push(""); L.push("■ 취재 경과");
+  const due = $("#lDue") ? $("#lDue").value : "";
+  const ans = $("#aAnswer").value.trim();
+  L.push(`- 질의서: ${$("#aSent").checked ? `발송함${due ? ` (회신 기한 ${fmtDe(ymd(due))})` : ""}` : "아직 발송하지 않음"}`);
+  L.push(`- 회사 답변: ${ans ? "아래와 같음" : ($("#aSent").checked ? "아직 받지 못함(회신 대기 중 — 무응답으로 확정하지 말 것)" : "없음(질의 전)")}`);
+  if (ans) L.push(ans);
+  const memo = $("#aMemo").value.trim();
+  if (memo) { L.push(""); L.push("■ 기자 추가 메모"); L.push(memo); }
+  if (D.errors && D.errors.length) { L.push(""); L.push(`■ 조회하지 못한 자료(자료가 없다는 뜻이 아님): ${D.errors.join(" · ")}`); }
+  return L.join("\n");
+}
+
+function articleBundle() {
+  if (!DIAG) return "";
+  return `${ARTICLE_PROMPT}\n\n[자료]\n${articleMaterial(DIAG)}`;
+}
+function renderArticle() {
+  if (!DIAG) return;
+  $("#artEmpty").style.display = "none"; $("#artWrap").style.display = "block";
+  const t = articleBundle();
+  $("#artOut").value = t;
+  $("#artLen").textContent = `${t.length.toLocaleString()}자`;
+}
+$("#btnArtRefresh").onclick = renderArticle;
+$("#btnArtCopy").onclick = () => { renderArticle(); copy($("#artOut").value, $("#btnArtCopy")); };
+["#aAnswer", "#aMemo"].forEach(s => $(s).addEventListener("input", () => { clearTimeout(renderArticle.t); renderArticle.t = setTimeout(renderArticle, 300); }));
+$("#aSent").addEventListener("change", renderArticle);
+$("#steps").addEventListener("click", (e) => { if (e.target.dataset.step === "6" && DIAG) { if (NOTE.cc !== DIAG.cc) initNote(DIAG); renderArticle(); } });
 
 async function copy(text, btn) {
   try { await navigator.clipboard.writeText(text); }
