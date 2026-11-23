@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>공시 취재 보고서</title>
+<!--
+  보고서 작성 페이지 — 후보 발굴 → 종합 진단 → 팩트시트 → 질의서.
+
+  원칙(뷰어·MCP와 같다)
+  - 점수·등급을 매기지 않는다. 공시에 적힌 사실과 그 출처만 모은다.
+  - 문장은 정해진 틀로만 만든다(AI 서술 없음). 같은 입력이면 같은 결과다.
+  - 이용자 본인 DART 키로만 돈다. 서버 키·쿼터를 쓰지 않는다.
+    키는 이 브라우저 localStorage(`dart_tool_key`, 뷰어와 같은 칸)에만 둔다.
+  - 「못 받았다」와 「없다」를 가른다. DART 013만 없음이다.
+  - 뷰어(index.html)에서 이 페이지로 가는 링크를 두지 않는다(외부 노출 축소 결정).
+-->
+<style>
+:root{
+  --bg:#f7f7f5;--card:#fff;--tx:#1d1d1b;--dim:#6b6b66;--line:#e2e1dc;
+  --acc:#1f5fbf;--acc-bg:#e8f0fc;--warn:#9a5b00;--warn-bg:#fdf2e0;
+  --bad:#b3261e;--bad-bg:#fbe9e7;--ok:#1e7a3c;--ok-bg:#e6f4ea;--chip:#efeee9;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#161615;--card:#1f1f1d;--tx:#ecebe6;--dim:#a3a29b;--line:#34332f;
+  --acc:#7aa7ef;--acc-bg:#1f2b3f;--warn:#f0b35a;--warn-bg:#3a2c16;
+  --bad:#f28b82;--bad-bg:#3b1f1d;--ok:#81c995;--ok-bg:#1c3324;--chip:#2b2a27;}}
+:root[data-theme="dark"]{
+  --bg:#161615;--card:#1f1f1d;--tx:#ecebe6;--dim:#a3a29b;--line:#34332f;
+  --acc:#7aa7ef;--acc-bg:#1f2b3f;--warn:#f0b35a;--warn-bg:#3a2c16;
+  --bad:#f28b82;--bad-bg:#3b1f1d;--ok:#81c995;--ok-bg:#1c3324;--chip:#2b2a27;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:12px 16px;position:sticky;top:0;z-index:5}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+h1{font-size:1.15rem;margin:0}
+h2{font-size:1.05rem;margin:0 0 8px}
+h3{font-size:.95rem;margin:18px 0 6px}
+.top{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+nav.steps{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+nav.steps button{border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:.9rem}
+nav.steps button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+nav.steps button:disabled{opacity:.45;cursor:default}
+main{padding:16px 0 60px}
+section.step{display:none}
+section.step.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+label{font-size:.85rem;color:var(--dim);display:block}
+input[type=text],input[type=date],input[type=password],select,textarea{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+textarea{width:100%;min-height:60px;resize:vertical}
+button.btn{font:inherit;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:6px;padding:6px 14px;cursor:pointer}
+button.btn.ghost{background:transparent;color:var(--acc)}
+button.btn.sm{padding:2px 9px;font-size:.85rem}
+button.btn:disabled{opacity:.5;cursor:default}
+.dim{color:var(--dim)}
+.small{font-size:.85rem}
+.chip{display:inline-block;background:var(--chip);border-radius:999px;padding:0 8px;margin:1px 3px 1px 0;font-size:.8rem;white-space:nowrap}
+.chip.first{background:var(--bad-bg);color:var(--bad)}
+.chip.watch{background:var(--warn-bg);color:var(--warn)}
+.rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px 14px;margin:8px 0}
+.rules label{color:var(--tx);font-size:.9rem;display:flex;gap:6px;align-items:flex-start}
+.rules small{display:block;color:var(--dim);font-size:.8rem}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{border-bottom:1px solid var(--line);padding:6px 6px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600;white-space:nowrap}
+td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tbl{overflow-x:auto}
+a{color:var(--acc)}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0}
+.bar>i{display:block;height:100%;background:var(--acc);width:0}
+.note{background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:8px 10px;font-size:.88rem;margin:8px 0}
+.err{background:var(--bad-bg);color:var(--bad);border-radius:6px;padding:8px 10px;font-size:.88rem;margin:8px 0}
+.okbox{background:var(--ok-bg);color:var(--ok);border-radius:6px;padding:8px 10px;font-size:.88rem;margin:8px 0}
+.hit{border-left:3px solid var(--acc);padding:4px 10px;margin:6px 0;background:var(--acc-bg);border-radius:0 6px 6px 0;font-size:.88rem}
+.hit b{color:var(--acc)}
+details summary{cursor:pointer}
+.fact{display:grid;grid-template-columns:28px 110px 1fr;gap:8px;align-items:start;border-bottom:1px solid var(--line);padding:8px 0}
+.fact textarea{min-height:44px}
+.fact .src{grid-column:3;font-size:.8rem;color:var(--dim)}
+pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px;font:14px/1.7 inherit}
+#cGain,#cLoss,#cFair{min-height:120px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+@media (max-width:640px){.fact{grid-template-columns:24px 1fr}.fact select{grid-column:2}.fact textarea,.fact .src{grid-column:1 / -1}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>공시 취재 보고서 <span class="dim small">· 후보 발굴부터 질의서까지</span></h1>
+      <button class="btn ghost sm" id="btnSettings">설정 (DART 키·발신자)</button>
+    </div>
+    <nav class="steps" id="steps">
+      <button data-step="1" class="on">① 후보 발굴</button>
+      <button data-step="2">② 종합 진단</button>
+      <button data-step="3">③ 팩트시트</button>
+      <button data-step="4">④ 질의서</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- 설정 -->
+<div class="card" id="settings" style="display:none">
+  <h2>설정</h2>
+  <p class="small dim">이 브라우저에만 저장됩니다. 키는 공시 조회에만 쓰이고 서버에 남지 않습니다.
+    키가 없으면 <a href="https://opendart.fss.or.kr/uss/umt/EgovMberInsertView.do" target="_blank" rel="noopener">DART 오픈API</a>에서 무료로 받으세요(신청 즉시 발급).</p>
+  <div class="grid2">
+    <div><label>DART 오픈API 인증키</label><input type="password" id="setKey" style="width:100%" autocomplete="off"></div>
+    <div><label>매체명</label><input type="text" id="setOutlet" style="width:100%" placeholder="예: 제보팀장"></div>
+    <div><label>기자 이름</label><input type="text" id="setName" style="width:100%"></div>
+    <div><label>연락처</label><input type="text" id="setPhone" style="width:100%" placeholder="010-0000-0000"></div>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="btn" id="btnSaveSettings">저장</button>
+    <button class="btn ghost" id="btnTestKey">키 확인</button>
+    <span id="setMsg" class="small"></span>
+  </div>
+</div>
+
+<!-- ① 후보 발굴 -->
+<section class="step on" data-step="1">
+  <div class="card">
+    <h2>① 후보 발굴 — 기간 안의 상장사 공시를 유형별로 훑기</h2>
+    <p class="small dim">공시 제목으로 먼저 거르고, 원하면 원문까지 열어 문구를 확인합니다. 점수를 매기지 않고, 걸린 유형과 공시만 보여 줍니다.</p>
+    <div class="row">
+      <div><label>시작일</label><input type="date" id="dBgn"></div>
+      <div><label>종료일</label><input type="date" id="dEnd"></div>
+      <div><label>시장</label>
+        <select id="mkt"><option value="YK">코스피+코스닥</option><option value="K">코스닥</option><option value="Y">코스피</option><option value="YKN">+코넥스</option></select></div>
+      <div><label><input type="checkbox" id="exSpac" checked> 스팩·리츠 제외</label></div>
+    </div>
+    <div class="rules" id="ruleBox"></div>
+    <div class="row">
+      <button class="btn" id="btnScan">후보 찾기</button>
+      <span class="small dim" id="scanInfo">DART 규칙상 한 번에 최대 3개월까지 볼 수 있습니다. 2주 기준 보통 1~2분 걸립니다.</span>
+    </div>
+    <div class="bar" id="scanBar" style="display:none"><i></i></div>
+    <div id="scanMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>회사를 이미 정했다면</h2>
+    <div class="row">
+      <div style="flex:1;min-width:200px"><label>회사명 또는 종목코드</label><input type="text" id="corpQ" style="width:100%" placeholder="예: 센서뷰 / 321370"></div>
+      <button class="btn" id="btnCorp">찾기</button>
+    </div>
+    <div id="corpRes" class="small"></div>
+  </div>
+
+  <div class="card" id="candCard" style="display:none">
+    <h2>후보 목록 <span class="dim small" id="candCount"></span></h2>
+    <p class="small dim">걸린 유형이 많은 순서입니다. 「보도 확인」으로 최근 기사부터 보세요 — 같은 각도의 기사가 최근 3개월에 3곳 이상이면 건너뛰는 편이 낫습니다.</p>
+    <div class="tbl"><table id="candTbl"></table></div>
+  </div>
+</section>
+
+<!-- ② 종합 진단 -->
+<section class="step" data-step="2">
+  <div class="card" id="diagEmpty"><p class="dim">① 후보 목록에서 「진단」을 누르거나 회사를 직접 찾아 주세요.</p></div>
+  <div id="diag"></div>
+</section>
+
+<!-- ③ 팩트시트 -->
+<section class="step" data-step="3">
+  <div class="card" id="factEmpty"><p class="dim">② 종합 진단을 먼저 실행하세요.</p></div>
+  <div id="factWrap" style="display:none">
+    <div class="card">
+      <h2>③ 팩트시트 — <span id="factCorp"></span></h2>
+      <p class="small dim">자동으로 모은 항목입니다. 구분을 바꾸고 문장을 고칠 수 있습니다.
+        <b>☑ 표시한 항목만</b> 질의서에 들어갑니다 — 「확인된 사실」·「회사 설명」은 질의서 앞부분 ①②③④로(4개 안팎 권장), 「미확인」은 질문으로.</p>
+      <div class="row" style="margin-bottom:6px">
+        <button class="btn ghost sm" id="btnAddFact">+ 항목 추가</button>
+        <button class="btn ghost sm" id="btnCopyFact">팩트시트 복사</button>
+      </div>
+      <div id="factList"></div>
+    </div>
+    <div class="card">
+      <h2>세 가지 기준</h2>
+      <p class="small dim">자동 힌트는 유형별 출발점일 뿐입니다. 공시로 확인한 내용으로 바꿔 쓰세요.</p>
+      <div class="grid2">
+        <div><label>누가 가장 이익인가</label><textarea id="cGain"></textarea></div>
+        <div><label>누가 가장 손해인가</label><textarea id="cLoss"></textarea></div>
+        <div><label>과정이 공정한가</label><textarea id="cFair"></textarea></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ④ 질의서 -->
+<section class="step" data-step="4">
+  <div class="card" id="letterEmpty"><p class="dim">③ 팩트시트를 먼저 만드세요.</p></div>
+  <div id="letterWrap" style="display:none">
+    <div class="card">
+      <h2>④ 질의서 초안</h2>
+      <div class="grid2">
+        <div><label>문서번호</label><input type="text" id="lNo" style="width:100%"></div>
+        <div><label>수신</label><input type="text" id="lTo" style="width:100%"></div>
+        <div><label>주소</label><input type="text" id="lAddr" style="width:100%"></div>
+        <div><label>제목</label><input type="text" id="lTitle" style="width:100%"></div>
+        <div><label>회신 기한</label><input type="date" id="lDue" style="width:100%"></div>
+        <div><label>보도 예정일</label><input type="date" id="lPub" style="width:100%"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnLetter">초안 다시 만들기</button>
+        <button class="btn ghost" id="btnCopyLetter">복사</button>
+        <span class="small dim">질문은 섹션마다 하나씩입니다. 복사해 질의서 양식에 붙여 넣으세요.</span>
+      </div>
+    </div>
+    <div class="card"><textarea id="letterOut" style="min-height:520px;font-size:14px;line-height:1.75"></textarea></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+"use strict";
+/* ───────────────────────── 기본 ───────────────────────── */
+const LS_KEY = "dart_tool_key";              // 뷰어와 같은 칸 — 한 번 넣으면 둘 다 쓴다
+const LS_ME = "dart_report_me";
+const RELAY = (location.protocol === "file:" || !location.host) ? "https://dart-risk-mcp.vercel.app" : "";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const lsGet = (k, d = "") => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* 사생활 모드 */ } };
+const squash = (s) => String(s || "").replace(/\s+/g, "");
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function kstToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
+function addDays(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+const ymd = (iso) => iso.replace(/-/g, "");
+const josa = (w, a, b) => { const ch = String(w || "").trim().slice(-1); const code = ch.charCodeAt(0) - 0xac00; if (code < 0 || code > 11171) return a + "(" + b + ")"; return code % 28 ? a : b; };
+const josaRo = (w) => { const ch = String(w || "").trim().slice(-1); const code = ch.charCodeAt(0) - 0xac00; if (code < 0 || code > 11171) return "(으)로"; const t = code % 28; return t && t !== 8 ? "으로" : "로"; };
+const shortName = (n) => String(n || "").replace(/^\s*(주식회사|\(주\))\s*/, "").replace(/\s*(주식회사|\(주\))\s*$/, "").trim();
+const fmtKo = (de) => de && de.length === 8 ? `${de.slice(0,4)}년 ${+de.slice(4,6)}월 ${+de.slice(6)}일` : "";
+const fmtDe = (de) => de && de.length === 8 ? `${de.slice(0,4)}.${de.slice(4,6)}.${de.slice(6)}` : (de || "");
+const dartLink = (rcp) => `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcp}`;
+const newsLink = (name) => `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(name)}`;
+function toNum(v) { if (v == null) return null; const s = String(v).replace(/,/g, "").trim(); if (!s || s === "-") return null; const n = Number(s); return isFinite(n) ? n : null; }
+function eok(n) { if (n == null) return "-"; if (n === 0) return "0원"; const v = n / 1e8; return (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : v.toFixed(1).replace(/\.0$/, "")) + "억원"; }
+
+function me() { try { return JSON.parse(lsGet(LS_ME, "{}")) || {}; } catch (e) { return {}; } }
+function key() { return (lsGet(LS_KEY, "") || "").trim(); }
+
+const DART_ERR = {
+  "010": "등록되지 않은 키입니다 — 설정에서 키를 확인하세요",
+  "011": "사용할 수 없는 키입니다(발급 직후면 몇 분 뒤 다시)",
+  "020": "오늘 이 키의 조회 한도(2만 건)를 넘었습니다 — 내일 다시",
+  "100": "요청 값이 잘못됐습니다",
+  "800": "DART 시스템 점검 중입니다",
+};
+
+/** DART 조회(릴레이 경유). 013(자료 없음)은 빈 목록으로, 그 밖의 비정상은 예외로. */
+async function dart(endpoint, params, tries = 3) {
+  const k = key();
+  if (!k) { openSettings(); throw new Error("DART 키가 없습니다 — 설정에서 입력하세요"); }
+  const url = `${RELAY}/api/${endpoint}?${new URLSearchParams({ crtfc_key: k, ...params })}`;
+  for (let i = 0; i < tries; i++) {
+    let r;
+    try { r = await fetch(url); } catch (e) { if (i === tries - 1) throw new Error("릴레이에 연결하지 못했습니다"); await sleep(800 * (i + 1)); continue; }
+    if (r.status === 429 || r.status >= 500) { if (i === tries - 1) throw new Error(`릴레이 오류 (HTTP ${r.status})`); await sleep(1200 * (i + 1)); continue; }
+    if (!r.ok) throw new Error(`릴레이 오류 (HTTP ${r.status})`);
+    const j = await r.json();
+    if (j.status === "000") return j;
+    if (j.status === "013") return { ...j, list: [], total_page: 0, total_count: 0 };
+    throw new Error(DART_ERR[j.status] || `DART 오류 ${j.status} ${j.message || ""}`);
+  }
+}
+
+/** 원문 문구 검색(/api/grep). */
+async function grep(rcp, terms) {
+  const r = await fetch(`${RELAY}/api/grep?${new URLSearchParams({ rcept_no: rcp, q: terms.join("|") })}`, { headers: { "X-DART-Key": key() } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `원문 검색 실패 (HTTP ${r.status})`);
+  return j;
+}
+
+/** 동시 실행 n개로 제한한 작업 풀. */
+async function pool(items, n, fn) {
+  const out = new Array(items.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
+  }));
+  return out;
+}
+
+/* ───────────────────────── 유형 규칙 ─────────────────────────
+ * match: 제목(공백 제거)에 대한 판정. kw: 뷰어 신호(signals-data.json)에서
+ * 빌려 올 키워드 묶음. terms: 원문 확인 때 찾을 문구.
+ * qs: 미확인 항목(질문) 틀. hint: 세 가지 기준 출발점.
+ */
+const RULES = [
+  { id: "restate", label: "재무제표 재작성·정정", level: "first",
+    desc: "정기보고서 [기재정정] — 원문에서 재작성·오류수정 여부 확인",
+    match: t => /^\[기재정정\](사업|반기|분기)보고서/.test(t),
+    terms: ["재작성", "전기오류", "오류수정", "과대계상", "과소계상", "회계처리기준 위반"],
+    qs: [
+      ["재무제표 재작성 경위", "이번 정정의 원인이 된 오류는 언제, 어떤 경로로 발견됐습니까?"],
+      ["오류 금액 산정", "정정 전후 달라진 계정과 금액은 무엇이며, 그 금액은 어떻게 산정했습니까?"],
+      ["기존 감사", "이전 감사에서 이 오류가 걸러지지 않은 이유를 회사는 어떻게 파악하고 있습니까?"],
+      ["재발 방지", "내부통제 개선 등 재발을 막기 위해 어떤 조치를 했거나 할 계획입니까?"],
+    ],
+    hint: ["정정 전 실적이 좋게 보이던 기간에 지분을 판 최대주주·임원, 성과보상을 받은 경영진이 있었는지", "정정 전 실적을 보고 투자한 주주", "오류를 안 시점과 공시한 시점의 간격, 감사인의 검증 과정"] },
+  { id: "offering", label: "유상증자·조달자금 배분", level: "watch",
+    desc: "증권신고서(지분)·증권발행실적보고서 — 원문에서 주관사 이해상충·우선상환 확인",
+    match: t => /증권신고서\(지분증권\)|증권발행실적보고서|투자설명서/.test(t),
+    terms: ["채권자 지위", "이해상충", "우선적으로 상환", "당초 계획", "계속기업", "신규 차입"],
+    qs: [
+      ["자금 배분 순위", "조달 금액이 계획보다 줄었을 때 용도별 배분 순위는 누가, 어떤 기준으로 정했습니까?"],
+      ["주관사와의 채권·채무 관계", "대표주관회사(또는 계열사)와 회사 사이에 대출·사채 등 채권·채무 관계가 있습니까? 있다면 이해상충 검토는 어떻게 이뤄졌습니까?"],
+      ["줄어든 사업 계획", "계획보다 줄어든 용도의 사업은 일정과 재원을 어떻게 다시 잡았습니까?"],
+    ],
+    hint: ["증자 대금으로 먼저 돈을 돌려받는 채권자(주관사·계열사 포함)", "증자에 참여한 주주 — 약속받은 사업 투자가 줄어든 경우", "배분 순위를 정한 절차와 그 사실을 투자자에게 알린 시점"] },
+  { id: "fundchange", label: "자금 사용 목적 변경", level: "watch",
+    desc: "유상증자·CB·BW 결정의 [기재정정] — 자금 용도가 바뀌었는지",
+    match: t => /^\[기재정정\].*(유상증자결정|전환사채권발행결정|신주인수권부사채권발행결정|교환사채권발행결정)/.test(t),
+    terms: ["자금사용 목적", "자금조달의 목적", "변경 사유", "정정사유", "채무상환자금", "운영자금"],
+    qs: [
+      ["자금 용도 변경 사유", "당초 공시한 자금 사용 목적을 바꾼 구체적인 사유는 무엇입니까?"],
+      ["변경 절차와 고지", "변경은 어떤 절차를 거쳐 결정했고, 이미 투자한 주주에게는 어떻게 알렸습니까?"],
+    ],
+    hint: ["바뀐 용도로 돈이 흘러가는 상대방(채권자·특수관계인 등)", "원래 용도를 믿고 투자한 주주", "변경 결정 절차와 공시 시점"] },
+  { id: "audit", label: "감사의견·상장 유지 위기", level: "first",
+    desc: "의견거절·한정·관리종목·상장폐지·회생 관련 공시",
+    kw: ["AUDIT", "WATCH_ISSUE", "DELISTING_RISK", "GOING_CONCERN", "INSOLVENCY"],
+    match: t => /감사의견|감사범위제한|계속기업/.test(t),
+    terms: ["의견거절", "한정", "계속기업", "중요한 불확실성", "강조사항", "감사범위"],
+    qs: [
+      ["감사인 지적 사항", "감사인이 의견 근거나 강조사항으로 지적한 내용에 대한 회사의 입장과 해소 계획은 무엇입니까?"],
+      ["상장 유지 방안", "관리종목·상장적격성 관련 사유를 언제, 어떤 방법으로 해소할 계획입니까?"],
+    ],
+    hint: ["거래 정지 전후 지분을 정리한 내부자가 있었는지", "거래가 묶이거나 상장폐지 위험을 안게 된 소액주주", "위험 신호를 공시로 알린 시점과 그 전 회사의 설명"] },
+  { id: "reliability", label: "공시 신뢰성(불성실·조회공시)", level: "watch",
+    desc: "불성실공시·지연 제출·조회공시 — 같은 기간 정정 3건 이상 회사도 표시",
+    kw: ["DISCLOSURE_VIOL", "INQUIRY"],
+    match: t => /불성실공시|공시번복|공시불이행/.test(t),
+    terms: ["불성실공시", "번복", "지연"],
+    qs: [
+      ["반복된 정정·번복", "최근 정정·번복 공시가 이어진 이유는 무엇이며, 공시 검토 절차는 어떻게 운영합니까?"],
+    ],
+    hint: ["정정 전 공시 내용을 근거로 이익을 본 쪽", "처음 공시를 믿고 거래한 투자자", "정정·번복까지 걸린 시간과 그 사유 설명"] },
+  { id: "control", label: "최대주주·경영권 변동", level: "watch",
+    desc: "최대주주 변경·주식담보·경영권 분쟁·횡령배임",
+    kw: ["SHAREHOLDER", "MGMT_DISPUTE", "STAKE_PLEDGE", "EMBEZZLE", "MGMT"],
+    terms: ["특수관계인", "담보", "인수자금", "자금 출처"],
+    qs: [
+      ["최대주주 변경", "새 최대주주의 인수 자금은 어디서 마련됐고, 회사 경영에 대한 계획은 무엇입니까?"],
+      ["주식 담보", "최대주주 보유 주식의 담보 제공 규모와 주가 하락 때 반대매매 위험을 어떻게 관리합니까?"],
+    ],
+    hint: ["지분을 넘기며 경영권 프리미엄을 받은 기존 최대주주", "지배권 변화의 부담을 함께 지는 소액주주", "인수 자금 출처와 거래 조건 공개 수준"] },
+  { id: "mezz", label: "CB·BW 발행·가액 조정", level: "watch",
+    desc: "전환사채·신주인수권부사채·교환사채 발행과 리픽싱",
+    kw: ["CB_BW", "EB"],
+    terms: ["인수인", "특수관계", "콜옵션", "최저 조정가액"],
+    qs: [
+      ["사채 인수자", "이번 사채의 인수자는 누구이며, 회사·최대주주와 어떤 관계가 있습니까?"],
+      ["전환가액 조정", "전환가액 조정(리픽싱)으로 늘어나는 주식 수와 기존 주주 지분 희석을 회사는 어떻게 보고 있습니까?"],
+    ],
+    hint: ["낮아진 전환가액으로 주식을 받는 사채권자·콜옵션 보유자", "지분이 희석되는 기존 주주", "인수자 선정과 조건 결정 과정"] },
+];
+const RULE = Object.fromEntries(RULES.map(r => [r.id, r]));
+
+/* 뷰어 신호 키워드를 불러와 kw 규칙에 붙인다. 못 불러와도 match만으로 돈다. */
+let SIGNALS = [];
+async function loadSignals() {
+  try {
+    const j = await (await fetch(`${RELAY || "."}/signals-data.json`)).json();
+    SIGNALS = j.signals || [];
+  } catch (e) { SIGNALS = []; }
+  for (const r of RULES) {
+    if (!r.kw) continue;
+    const kws = SIGNALS.filter(s => r.kw.includes(s.key)).flatMap(s => s.keywords || []).map(squash).filter(Boolean);
+    const base = r.match;
+    r.match = t => (base && base(t)) || kws.some(k => t.includes(k));
+  }
+}
+function classify(title) {
+  const t = squash(title);
+  return RULES.filter(r => r.match && r.match(t)).map(r => r.id);
+}
+const isAmend = (title) => /^\[(기재|첨부)정정\]/.test(squash(title));
+
+/* ───────────────────────── 설정 ───────────────────────── */
+function openSettings() { $("#settings").style.display = "block"; $("#setKey").focus(); window.scrollTo(0, 0); }
+$("#btnSettings").onclick = () => { const s = $("#settings"); s.style.display = s.style.display === "none" ? "block" : "none"; };
+function fillSettings() { const m = me(); $("#setKey").value = key(); $("#setOutlet").value = m.outlet || ""; $("#setName").value = m.name || ""; $("#setPhone").value = m.phone || ""; }
+$("#btnSaveSettings").onclick = () => {
+  lsSet(LS_KEY, $("#setKey").value.trim());
+  lsSet(LS_ME, JSON.stringify({ outlet: $("#setOutlet").value.trim(), name: $("#setName").value.trim(), phone: $("#setPhone").value.trim() }));
+  $("#setMsg").innerHTML = '<span style="color:var(--ok)">저장했습니다</span>';
+};
+$("#btnTestKey").onclick = async () => {
+  lsSet(LS_KEY, $("#setKey").value.trim());
+  $("#setMsg").textContent = "확인 중…";
+  try { await dart("company.json", { corp_code: "00126380" }); $("#setMsg").innerHTML = '<span style="color:var(--ok)">키가 정상입니다</span>'; }
+  catch (e) { $("#setMsg").innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+};
+
+/* ───────────────────────── 단계 이동 ───────────────────────── */
+function go(n) {
+  $$("#steps button").forEach(b => b.classList.toggle("on", b.dataset.step === String(n)));
+  $$("section.step").forEach(s => s.classList.toggle("on", s.dataset.step === String(n)));
+  window.scrollTo(0, 0);
+}
+$$("#steps button").forEach(b => b.onclick = () => go(b.dataset.step));
+
+/* ───────────────────────── ① 후보 발굴 ───────────────────────── */
+function renderRuleBox() {
+  $("#ruleBox").innerHTML = RULES.map(r => `<label><input type="checkbox" value="${r.id}" ${r.id === "control" || r.id === "mezz" ? "" : "checked"}>
+    <span>${esc(r.label)}<small>${esc(r.desc)}</small></span></label>`).join("");
+}
+const SPAC_RE = /스팩|기업인수목적|리츠|위탁관리부동산|REIT/i;
+let CANDS = [];
+
+$("#btnScan").onclick = async () => {
+  const bgn = $("#dBgn").value, end = $("#dEnd").value;
+  const picked = $$("#ruleBox input:checked").map(i => i.value);
+  const msg = $("#scanMsg"); msg.innerHTML = "";
+  if (!bgn || !end || bgn > end) { msg.innerHTML = '<div class="err">기간을 확인하세요.</div>'; return; }
+  if (addDays(bgn, 92) < end) { msg.innerHTML = '<div class="err">DART 규칙상 회사를 정하지 않은 조회는 3개월까지입니다. 기간을 줄여 주세요.</div>'; return; }
+  if (!picked.length) { msg.innerHTML = '<div class="err">유형을 하나 이상 고르세요.</div>'; return; }
+  const btn = $("#btnScan"); btn.disabled = true;
+  const bar = $("#scanBar"); bar.style.display = "block"; const fill = $("i", bar); fill.style.width = "2%";
+  const all = [];
+  try {
+    const classes = $("#mkt").value.split("");
+    for (const cls of classes) {
+      const base = { bgn_de: ymd(bgn), end_de: ymd(end), corp_cls: cls, page_count: "100" };
+      const first = await dart("list.json", { ...base, page_no: "1" });
+      all.push(...(first.list || []));
+      const pages = Array.from({ length: Math.max(0, (first.total_page || 1) - 1) }, (_, i) => i + 2);
+      let done = 1; const total = pages.length + 1;
+      $("#scanInfo").textContent = `${cls === "Y" ? "코스피" : cls === "K" ? "코스닥" : "코넥스"} 공시 ${first.total_count || 0}건 읽는 중…`;
+      await pool(pages, 4, async (p) => {
+        const j = await dart("list.json", { ...base, page_no: String(p) });
+        all.push(...(j.list || []));
+        done++; fill.style.width = Math.min(98, Math.round(done * 100 / total)) + "%";
+      });
+    }
+  } catch (e) {
+    msg.innerHTML = `<div class="err">조회하지 못했습니다 — ${esc(e.message)}. <b>후보가 없다는 뜻이 아닙니다.</b></div>`;
+    btn.disabled = false; bar.style.display = "none"; return;
+  }
+  fill.style.width = "100%";
+  // 회사별로 묶는다
+  const by = new Map();
+  for (const d of all) {
+    if ($("#exSpac").checked && SPAC_RE.test(d.corp_name)) continue;
+    let c = by.get(d.corp_code);
+    if (!c) { c = { corp_code: d.corp_code, corp_name: d.corp_name, stock_code: d.stock_code, corp_cls: d.corp_cls, docs: [], amend: 0, hits: {} }; by.set(d.corp_code, c); }
+    const ids = classify(d.report_nm).filter(id => picked.includes(id));
+    if (isAmend(d.report_nm)) c.amend++;
+    if (ids.length) { c.docs.push({ ...d, rules: ids }); ids.forEach(id => c.hits[id] = (c.hits[id] || 0) + 1); }
+  }
+  // 「공시 신뢰성」— 같은 기간 정정 3건 이상
+  if (picked.includes("reliability")) for (const c of by.values()) if (c.amend >= 3) c.hits.reliability = c.hits.reliability || 0, c.manyAmend = true;
+  CANDS = [...by.values()].filter(c => Object.keys(c.hits).length)
+    .sort((a, b) => Object.keys(b.hits).length - Object.keys(a.hits).length || b.docs.length - a.docs.length);
+  btn.disabled = false; setTimeout(() => bar.style.display = "none", 400);
+  $("#scanInfo").textContent = `공시 ${all.length.toLocaleString()}건을 읽었습니다.`;
+  renderCands();
+};
+
+function chipsFor(hits, manyAmend, amend) {
+  return Object.entries(hits).map(([id, n]) => `<span class="chip ${RULE[id].level}">${esc(RULE[id].label)}${n ? " " + n : ""}</span>`).join("")
+    + (manyAmend ? `<span class="chip watch">정정 ${amend}건</span>` : "");
+}
+function renderCands() {
+  const card = $("#candCard"); card.style.display = "block";
+  $("#candCount").textContent = `${CANDS.length}곳`;
+  if (!CANDS.length) { $("#candTbl").innerHTML = '<tr><td class="dim">고른 유형에 걸린 회사가 없습니다.</td></tr>'; return; }
+  $("#candTbl").innerHTML = `<tr><th>회사</th><th>걸린 유형</th><th>최근</th><th></th></tr>` + CANDS.map((c, i) => {
+    const last = c.docs.reduce((m, d) => d.rcept_dt > m ? d.rcept_dt : m, "");
+    return `<tr>
+      <td><b>${esc(c.corp_name)}</b><br><span class="dim small">${c.corp_cls === "Y" ? "코스피" : c.corp_cls === "K" ? "코스닥" : "코넥스"} ${esc(c.stock_code || "")}</span></td>
+      <td>${chipsFor(c.hits, c.manyAmend, c.amend)}
+        <details class="small"><summary class="dim">공시 ${c.docs.length}건 보기</summary>
+          ${c.docs.map(d => `<div>${fmtDe(d.rcept_dt)} <a href="${dartLink(d.rcept_no)}" target="_blank" rel="noopener">${esc(d.report_nm)}</a></div>`).join("")}
+        </details>
+        <div id="deep${i}"></div></td>
+      <td class="small">${fmtDe(last)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm" data-diag="${i}">진단</button>
+        <button class="btn ghost sm" data-deep="${i}">원문 확인</button><br>
+        <a class="small" href="${newsLink(c.corp_name)}" target="_blank" rel="noopener">보도 확인 ↗</a></td></tr>`;
+  }).join("");
+  $$("[data-diag]").forEach(b => b.onclick = () => { const c = CANDS[+b.dataset.diag]; runDiag(c.corp_code, c.corp_name); });
+  $$("[data-deep]").forEach(b => b.onclick = () => deepCheck(+b.dataset.deep, b));
+}
+
+/** 후보 한 곳의 대표 공시(유형별 최신 1건, 최대 3건) 원문에서 문구를 찾는다. */
+async function deepCheck(i, btn) {
+  const c = CANDS[i]; const box = $(`#deep${i}`);
+  const targets = [];
+  for (const id of Object.keys(c.hits)) {
+    const d = c.docs.filter(x => x.rules.includes(id)).sort((a, b) => b.rcept_no.localeCompare(a.rcept_no))[0];
+    if (d && RULE[id].terms && !targets.some(t => t.d.rcept_no === d.rcept_no)) targets.push({ d, id });
+  }
+  if (!targets.length) { box.innerHTML = '<div class="dim small">원문에서 찾을 문구가 정해진 유형이 아닙니다.</div>'; return; }
+  btn.disabled = true; box.innerHTML = '<div class="dim small">원문 여는 중… (큰 문서는 20초 남짓)</div>';
+  const html = await pool(targets.slice(0, 3), 2, async ({ d, id }) => {
+    try { return grepHTML(d, await grep(d.rcept_no, RULE[id].terms)); }
+    catch (e) { return `<div class="err">${esc(d.report_nm)} — ${esc(e.message)}. 찾지 못한 것이 아니라 열지 못한 것입니다.</div>`; }
+  });
+  box.innerHTML = html.join(""); btn.disabled = false;
+}
+function grepHTML(d, g) {
+  const shown = new Set();
+  const found = g.results.filter(r => r.count).map(r => ({ ...r, hits: r.hits.filter(h => !shown.has(h.text) && shown.add(h.text)) }));
+  const none = g.results.filter(r => !r.count).map(r => r.term);
+  return `<div class="small" style="margin-top:6px"><b>${esc(d.report_nm)}</b> <span class="dim">(${fmtDe(d.rcept_dt)}, 원문 ${g.char_count.toLocaleString()}자)</span>
+    ${found.map(r => r.hits.map(h => `<div class="hit"><b>「${esc(r.term)}」</b> ${h.heading ? `<span class="dim">${esc(h.heading)} · </span>` : ""}${esc(h.text)} <span class="dim">(문서 ${h.pos}% 지점)</span></div>`).join("")
+      + (r.count > r.hits.length ? `<div class="dim">… 「${esc(r.term)}」 ${r.count - r.hits.length}곳 더</div>` : "")).join("")}
+    ${none.length ? `<div class="dim">없음: ${none.map(esc).join(", ")}</div>` : ""}</div>`;
+}
+
+/* 회사 직접 찾기 — 뷰어의 corp-map.json(이름 → [corp_code, 종목코드]) */
+let CORPMAP = null;
+$("#btnCorp").onclick = async () => {
+  const q = $("#corpQ").value.trim(); const out = $("#corpRes");
+  if (!q) return;
+  out.textContent = "찾는 중…";
+  try { CORPMAP = CORPMAP || await (await fetch(`${RELAY || "."}/corp-map.json`)).json(); }
+  catch (e) { out.innerHTML = '<div class="err">회사 목록을 불러오지 못했습니다.</div>'; return; }
+  const qs = squash(q).toLowerCase();
+  const hits = Object.entries(CORPMAP).filter(([n, v]) => squash(n).toLowerCase().includes(qs) || v[1] === q).slice(0, 12);
+  out.innerHTML = hits.length ? hits.map(([n, v]) => `<button class="btn ghost sm" data-cc="${v[0]}" data-nm="${esc(n)}" style="margin:3px">${esc(n)} <span class="dim">${v[1]}</span></button>`).join("")
+    : '<span class="dim">상장사 목록에서 찾지 못했습니다.</span>';
+  $$("[data-cc]", out).forEach(b => b.onclick = () => runDiag(b.dataset.cc, b.dataset.nm));
+};
+
+/* ───────────────────────── ② 종합 진단 ───────────────────────── */
+let DIAG = null;
+
+async function runDiag(cc, name) {
+  go(2); $("#diagEmpty").style.display = "none";
+  const box = $("#diag");
+  box.innerHTML = `<div class="card"><h2>② 종합 진단 — ${esc(name)}</h2><div class="bar"><i style="width:5%"></i></div><div class="dim small" id="dStat">기본 정보…</div></div>`;
+  const fill = $(".bar i", box), stat = $("#dStat");
+  const step = (p, t) => { fill.style.width = p + "%"; stat.textContent = t; };
+  const D = { cc, name, errors: [] };
+  const today = kstToday(), Y = +today.slice(0, 4);
+  const safe = async (label, fn) => { try { return await fn(); } catch (e) { D.errors.push(`${label}: ${e.message}`); return null; } };
+
+  D.company = await safe("기업 개황", () => dart("company.json", { corp_code: cc }));
+  step(15, "최근 1년 공시…");
+  D.docs = await safe("공시 목록", async () => {
+    const base = { corp_code: cc, bgn_de: ymd(addDays(today, -365)), end_de: ymd(today), page_count: "100" };
+    const f = await dart("list.json", { ...base, page_no: "1" });
+    let list = f.list || [];
+    for (let p = 2; p <= Math.min(f.total_page || 1, 5); p++) list = list.concat((await dart("list.json", { ...base, page_no: String(p) })).list || []);
+    return list.map(d => ({ ...d, rules: classify(d.report_nm), amend: isAmend(d.report_nm), sig: signalsOf(d.report_nm) }));
+  }) || [];
+  step(35, "재무…");
+  D.fin = await safe("주요 재무", async () => {
+    for (const yr of [Y - 1, Y - 2]) { const j = await dart("fnlttSinglAcnt.json", { corp_code: cc, bsns_year: String(yr), reprt_code: "11011" }); if (j.list.length) return { yr, list: j.list }; }
+    return null;
+  });
+  step(50, "감사의견…");
+  D.audit = await safe("감사의견", async () => {
+    const rows = [];
+    for (const yr of [Y - 1, Y - 2, Y - 3]) {
+      const j = await dart("accnutAdtorNmNdAdtOpinion.json", { corp_code: cc, bsns_year: String(yr), reprt_code: "11011" });
+      const cur = (j.list || []).filter(x => /당기/.test(x.bsns_year || ""));
+      const pick = cur.find(x => (x.adt_opinion || "").trim() && x.adt_opinion !== "-") || cur[0];
+      if (pick) rows.push({ yr, ...pick });
+    }
+    return rows;
+  }) || [];
+  step(65, "자금 사용 내역…");
+  D.funds = await safe("자금 사용 내역", async () => {
+    const tries = [[Y, "11014"], [Y, "11012"], [Y, "11013"], [Y - 1, "11011"]];
+    for (const [yr, rc] of tries) {
+      const [a, b] = await Promise.all([
+        dart("pssrpCptalUseDtls.json", { corp_code: cc, bsns_year: String(yr), reprt_code: rc }),
+        dart("prvsrpCptalUseDtls.json", { corp_code: cc, bsns_year: String(yr), reprt_code: rc }),
+      ]);
+      const rows = [...(a.list || []).map(x => ({ ...x, kind: "공모" })), ...(b.list || []).map(x => ({ ...x, kind: "사모" }))];
+      if (rows.length) return { yr, rc, rows };
+    }
+    return null;
+  });
+  step(78, "전환사채 발행…");
+  D.cb = await safe("전환사채 발행", async () => (await dart("cvbdIsDecsn.json", { corp_code: cc, bgn_de: ymd(addDays(today, -365)), end_de: ymd(today) })).list || []) || [];
+  step(88, "핵심 공시 원문…");
+  D.deep = [];
+  const keyDocs = [];
+  for (const r of RULES) {
+    const d = D.docs.filter(x => x.rules.includes(r.id)).sort((a, b) => b.rcept_no.localeCompare(a.rcept_no))[0];
+    if (d && r.terms && !keyDocs.some(k => k.d.rcept_no === d.rcept_no)) keyDocs.push({ d, r });
+  }
+  await pool(keyDocs.slice(0, 4), 2, async ({ d, r }) => {
+    try { D.deep.push({ d, r, g: await grep(d.rcept_no, r.terms) }); }
+    catch (e) { D.errors.push(`원문 「${d.report_nm}」: ${e.message}`); }
+  });
+  step(100, "완료");
+  DIAG = D;
+  renderDiag(D);
+  buildFacts(D);
+}
+
+function signalsOf(title) {
+  const t = squash(title);
+  return SIGNALS.filter(s => (s.keywords || []).some(k => t.includes(squash(k)))).map(s => s.label);
+}
+
+const FIN_ROWS = [
+  ["매출액", /^(매출액|수익\(매출액\)|영업수익)/],
+  ["영업이익", /^영업이익/],
+  ["당기순이익", /^당기순이익/],
+  ["자산총계", /^자산총계/],
+  ["부채총계", /^부채총계/],
+  ["자본총계", /^자본총계/],
+];
+function finTable(fin) {
+  if (!fin) return null;
+  const cfs = fin.list.filter(x => x.fs_div === "CFS"); const rows = cfs.length ? cfs : fin.list.filter(x => x.fs_div === "OFS");
+  const out = FIN_ROWS.map(([lab, re]) => { const r = rows.find(x => re.test((x.account_nm || "").trim())); return r ? { lab, cur: toNum(r.thstrm_amount), prev: toNum(r.frmtrm_amount), prev2: toNum(r.bfefrmtrm_amount) } : null; }).filter(Boolean);
+  return { yr: fin.yr, basis: cfs.length ? "연결" : "별도", out, rcp: (rows[0] || {}).rcept_no };
+}
+
+function renderDiag(D) {
+  const c = D.company || {}; const ft = finTable(D.fin);
+  const docs = D.docs || []; const amend = docs.filter(d => d.amend).length;
+  const ruleHits = RULES.map(r => [r, docs.filter(d => d.rules.includes(r.id))]).filter(([, a]) => a.length);
+  const fundsRows = D.funds ? D.funds.rows : [];
+  $("#diag").innerHTML = `
+  <div class="card">
+    <h2>② 종합 진단 — ${esc(c.corp_name || D.name)}</h2>
+    ${D.errors.length ? `<div class="note">일부를 조회하지 못했습니다(자료가 없다는 뜻이 아닙니다): ${D.errors.map(esc).join(" · ")}</div>` : ""}
+    <div class="grid2 small">
+      <div><span class="dim">대표</span> ${esc(c.ceo_nm || "-")}</div>
+      <div><span class="dim">시장·종목코드</span> ${c.corp_cls === "Y" ? "코스피" : c.corp_cls === "K" ? "코스닥" : esc(c.corp_cls || "-")} ${esc(c.stock_code || "")}</div>
+      <div><span class="dim">본점</span> ${esc(c.adres || "-")}</div>
+      <div><span class="dim">결산월</span> ${esc(c.acc_mt || "-")}월 · <span class="dim">설립</span> ${fmtDe(c.est_dt)}</div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn" onclick="go(3)">팩트시트로 →</button>
+      <a class="small" href="${newsLink(c.corp_name || D.name)}" target="_blank" rel="noopener">보도 확인 ↗</a></div>
+  </div>
+
+  <div class="card">
+    <h2>최근 1년 공시 흐름</h2>
+    <p class="small">공시 ${docs.length}건 · 정정 ${amend}건${docs.length ? ` (${Math.round(amend * 100 / docs.length)}%)` : ""}</p>
+    ${ruleHits.length ? ruleHits.map(([r, a]) => `<h3><span class="chip ${r.level}">${esc(r.label)}</span> ${a.length}건</h3>
+      ${a.map(d => `<div class="small">${fmtDe(d.rcept_dt)} <a href="${dartLink(d.rcept_no)}" target="_blank" rel="noopener">${esc(d.report_nm)}</a></div>`).join("")}`).join("")
+      : '<p class="dim small">유형 규칙에 걸린 공시가 없습니다.</p>'}
+    <details class="small" style="margin-top:10px"><summary>전체 공시 ${docs.length}건</summary>
+      <div class="tbl"><table><tr><th>접수일</th><th>공시</th><th>신호</th></tr>
+      ${docs.map(d => `<tr><td>${fmtDe(d.rcept_dt)}</td><td><a href="${dartLink(d.rcept_no)}" target="_blank" rel="noopener">${esc(d.report_nm)}</a> <span class="dim">${esc(d.flr_nm)}</span></td><td>${d.sig.map(s => `<span class="chip">${esc(s)}</span>`).join("")}</td></tr>`).join("")}</table></div></details>
+  </div>
+
+  <div class="card">
+    <h2>핵심 공시 원문에서 찾은 문장</h2>
+    ${D.deep.length ? D.deep.map(x => grepHTML(x.d, x.g)).join("") : '<p class="dim small">원문을 확인할 대상 공시가 없거나 열지 못했습니다.</p>'}
+  </div>
+
+  <div class="card">
+    <h2>주요 재무 ${ft ? `<span class="dim small">${ft.yr}년 사업보고서 · ${ft.basis}</span>` : ""}</h2>
+    ${ft && ft.out.length ? `<div class="tbl"><table><tr><th>항목</th><th class="num">${ft.yr - 2}</th><th class="num">${ft.yr - 1}</th><th class="num">${ft.yr}</th></tr>
+      ${ft.out.map(r => `<tr><td>${r.lab}</td><td class="num">${eok(r.prev2)}</td><td class="num">${eok(r.prev)}</td><td class="num">${eok(r.cur)}</td></tr>`).join("")}</table></div>`
+      : '<p class="dim small">사업보고서 재무 자료를 받지 못했습니다.</p>'}
+  </div>
+
+  <div class="card">
+    <h2>감사인·감사의견 (최근 3년)</h2>
+    ${D.audit.length ? `<div class="tbl"><table><tr><th>사업연도</th><th>감사인</th><th>의견</th><th>강조사항 등</th><th>핵심감사사항</th></tr>
+      ${D.audit.map(a => `<tr><td>${a.yr}</td><td>${esc(a.adtor || "-")}</td><td>${esc(a.adt_opinion || "-")}</td><td class="small">${esc(a.emphs_matter || a.adt_reprt_spcmnt_matter || "-")}</td><td class="small">${esc(a.core_adt_matter || "-")}</td></tr>`).join("")}</table></div>`
+      : '<p class="dim small">감사의견 자료를 받지 못했거나 없습니다.</p>'}
+  </div>
+
+  <div class="card">
+    <h2>공모·사모 자금 사용 내역 ${D.funds ? `<span class="dim small">${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준</span>` : ""}</h2>
+    ${fundsRows.length ? `<div class="tbl"><table><tr><th>구분</th><th>회차·납입일</th><th>계획 용도</th><th class="num">계획 금액</th><th>실제 사용</th><th class="num">사용 금액</th><th>차이 사유</th></tr>
+      ${fundsRows.map(f => `<tr><td>${f.kind}</td><td class="small">${esc(f.tm || "-")}<br>${esc(f.pay_de || "")}</td>
+        <td>${esc(f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-")}</td>
+        <td class="num">${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))}</td>
+        <td>${esc(f.real_cptal_use_dtls_cn || "-")}</td><td class="num">${eok(toNum(f.real_cptal_use_dtls_amount))}</td>
+        <td class="small">${esc(f.dffrnc_occrrnc_resn || "-")}</td></tr>`).join("")}</table></div>`
+      : '<p class="dim small">최근 정기보고서에 자금 사용 내역이 없거나 받지 못했습니다.</p>'}
+  </div>
+
+  <div class="card">
+    <h2>전환사채 발행 결정 (최근 1년)</h2>
+    ${D.cb.length ? `<div class="tbl"><table><tr><th>회차</th><th class="num">권면총액</th><th class="num">전환가액</th><th>발행 방법</th><th>공시</th></tr>
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="num">${eok(toNum(b.bd_fta))}</td><td class="num">${esc(b.cv_prc || "-")}</td><td>${esc(b.bdis_mthn || "-")}</td><td><a href="${dartLink(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>`
+      : '<p class="dim small">최근 1년 전환사채 발행 결정이 없습니다.</p>'}
+  </div>`;
+}
+const RC_NAME = { "11011": "사업보고서", "11012": "반기보고서", "11013": "1분기보고서", "11014": "3분기보고서" };
+
+/* ───────────────────────── ③ 팩트시트 ───────────────────────── */
+const KINDS = ["확인된 사실", "회사 설명", "미확인"];
+let FACTS = [];
+
+function buildFacts(D) {
+  const F = []; const c = D.company || {}; const docs = D.docs || [];
+  // prio: 질의서 ①~④에 먼저 들어갈 순서(작을수록 먼저). 기본 체크는 이 순서로 4개까지.
+  const add = (kind, text, src, on = false, topic = "", prio = 5) => F.push({ kind, text, src, on, topic, prio });
+  let firstRule = true;
+  // 1) 유형별 핵심 공시(확인된 사실)
+  for (const r of RULES) {
+    const a = docs.filter(d => d.rules.includes(r.id)).sort((x, y) => x.rcept_no.localeCompare(y.rcept_no));
+    if (!a.length) continue;
+    const last = a[a.length - 1];
+    const nm = shortName(D.name || c.corp_name);
+    add("확인된 사실", `${nm}${josa(nm, "은", "는")} ${fmtKo(last.rcept_dt)} '${last.report_nm}' 공시를 냈다${a.length > 1 ? `(최근 1년 같은 유형 공시 ${a.length}건)` : ""}.`,
+      { title: last.report_nm, rcp: last.rcept_no, de: last.rcept_dt }, true, "", firstRule ? 1 : 4);
+    firstRule = false;
+  }
+  // 2) 정정 비율
+  const amend = docs.filter(d => d.amend).length;
+  if (docs.length && amend >= 3) add("확인된 사실", `최근 1년 공시 ${docs.length}건 가운데 ${amend}건이 정정 공시다.`, { title: "DART 공시 목록" });
+  // 3) 원문 문장(회사 설명)
+  const seenSent = new Set(); let firstSaid = true;
+  for (const x of D.deep || []) for (const r of x.g.results) for (const h of r.hits.slice(0, 2)) {
+    if (seenSent.has(h.text)) continue; seenSent.add(h.text);
+    add("회사 설명", h.text, { title: x.d.report_nm + (h.heading ? ` · ${h.heading}` : ""), rcp: x.d.rcept_no, de: x.d.rcept_dt }, firstSaid, "", 2);
+    firstSaid = false;
+  }
+  // 4) 재무
+  const ft = finTable(D.fin);
+  if (ft) {
+    const pick = (lab) => ft.out.find(r => r.lab === lab);
+    const s = ["매출액", "영업이익", "당기순이익"].map(lab => { const r = pick(lab); return r ? `${lab} ${eok(r.prev)} → ${eok(r.cur)}` : null; }).filter(Boolean);
+    if (s.length) add("확인된 사실", `${ft.yr}년 ${ft.basis} 기준 ${s.join(", ")} (전년 → 당해).`, { title: `${ft.yr}년 사업보고서`, rcp: ft.rcp });
+  }
+  // 5) 감사
+  const au = (D.audit || []).slice().sort((a, b) => a.yr - b.yr);
+  if (au.length) {
+    add("확인된 사실", `최근 ${au.length}개 사업연도 감사인·의견: ${au.map(a => `${a.yr}년 ${a.adtor || "?"} '${a.adt_opinion || "?"}'`).join(", ")}.`, { title: "사업보고서 · 회계감사인의 명칭 및 감사의견" });
+    for (let i = 1; i < au.length; i++) if (au[i].adtor && au[i - 1].adtor && squash(au[i].adtor) !== squash(au[i - 1].adtor))
+      add("확인된 사실", `${au[i].yr}년 감사인이 ${au[i - 1].adtor}에서 ${au[i].adtor}${josaRo(au[i].adtor)} 바뀌었다.`, { title: "사업보고서 · 감사인" }, true, "", 3);
+    for (const a of au) if (/거절|한정|부적정/.test(a.adt_opinion || "")) add("확인된 사실", `${a.yr}년 감사의견은 '${a.adt_opinion}'이다.`, { title: "사업보고서 · 감사의견" }, true, "", 1);
+    for (const a of au) { const e = (a.emphs_matter || "").trim(); if (e && e !== "-" && e !== "해당사항 없음") add("확인된 사실", `${a.yr}년 감사보고서 강조사항 등: ${e}`, { title: "사업보고서 · 감사의견" }, true, "", 2); }
+  }
+  // 6) 자금 사용 — 계획 대비 차이
+  for (const f of (D.funds ? D.funds.rows : [])) {
+    const plan = toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount), used = toNum(f.real_cptal_use_dtls_amount);
+    const use = f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "";
+    if (plan && used != null && used < plan * 0.9)
+      add("확인된 사실", `${f.kind}자금(${f.tm || "-"}회차) '${use}' 계획 ${eok(plan)} 가운데 ${eok(used)}을 썼다고 기재했다${f.dffrnc_occrrnc_resn && f.dffrnc_occrrnc_resn !== "-" ? ` (차이 사유: ${f.dffrnc_occrrnc_resn})` : ""}.`,
+        { title: `${D.funds.yr}년 ${RC_NAME[D.funds.rc]} · 자금의 사용내역` }, true, "", 2);
+  }
+  // 7) 미확인(질문 틀)
+  const hitRules = RULES.filter(r => docs.some(d => d.rules.includes(r.id)));
+  for (const r of hitRules) for (const [topic, q] of r.qs) add("미확인", q, { title: `질문 틀 · ${r.label}` }, false, topic);
+  if (D.funds && D.funds.rows.some(f => { const p = toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount), u = toNum(f.real_cptal_use_dtls_amount); return p && u != null && u < p * 0.9; }))
+    add("미확인", "계획보다 쓰지 않은 조달 자금은 언제, 어디에 쓸 계획이며 그동안 어떻게 보관하고 있습니까?", { title: "질문 틀 · 자금 사용" }, false, "미사용 자금");
+  // 미확인은 유형당 첫 질문만 기본 체크 — 질의서가 길어지지 않게
+  const seen = new Set(); for (const f of F) if (f.kind === "미확인") { const k = f.src.title; if (!seen.has(k)) { f.on = true; seen.add(k); } }
+  const creditorSaid = (D.deep || []).some(x => x.g.results.some(r => r.count && /채권자 지위|이해상충/.test(r.term)));
+  if (creditorSaid) F.filter(f => f.topic === "주관사와의 채권·채무 관계").forEach(f => f.on = true);
+  // 확인된 사실이 4개를 넘게 체크되면 앞의 4개만 남긴다(질의서 ①~④)
+  const keep = new Set(F.filter(f => f.kind !== "미확인" && f.on).sort((a, b) => a.prio - b.prio).slice(0, 4));
+  for (const f of F) if (f.kind !== "미확인" && f.on && !keep.has(f)) f.on = false;
+  FACTS = F;
+  // 세 가지 기준 힌트
+  const hint = (i) => hitRules.map(r => `[${r.label}] ${r.hint[i]}`).join("\n");
+  $("#cGain").value = hint(0); $("#cLoss").value = hint(1); $("#cFair").value = hint(2);
+  $("#factCorp").textContent = c.corp_name || D.name;
+  $("#factEmpty").style.display = "none"; $("#factWrap").style.display = "block";
+  renderFacts(); initLetter(D);
+}
+
+function renderFacts() {
+  $("#factList").innerHTML = FACTS.map((f, i) => `<div class="fact">
+    <input type="checkbox" data-i="${i}" data-f="on" ${f.on ? "checked" : ""} title="질의서에 넣기">
+    <select data-i="${i}" data-f="kind">${KINDS.map(k => `<option ${k === f.kind ? "selected" : ""}>${k}</option>`).join("")}</select>
+    <div>${f.kind === "미확인" ? `<input type="text" data-i="${i}" data-f="topic" value="${esc(f.topic)}" placeholder="질문 주제(…관련)" style="width:100%;margin-bottom:4px">` : ""}
+      <textarea data-i="${i}" data-f="text">${esc(f.text)}</textarea>
+      <div class="src">${f.src && f.src.rcp ? `<a href="${dartLink(f.src.rcp)}" target="_blank" rel="noopener">${esc(f.src.title)}</a>` : esc((f.src && f.src.title) || "직접 입력")}${f.src && f.src.de ? ` · ${fmtDe(f.src.de)}` : ""}
+        · <a href="#" data-del="${i}">삭제</a></div></div></div>`).join("");
+  $$("#factList [data-f]").forEach(el => {
+    const upd = () => { const f = FACTS[+el.dataset.i]; f[el.dataset.f] = el.type === "checkbox" ? el.checked : el.value; if (el.dataset.f === "kind") renderFacts(); };
+    el.addEventListener(el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input", upd);
+  });
+  $$("#factList [data-del]").forEach(a => a.onclick = (e) => { e.preventDefault(); FACTS.splice(+a.dataset.del, 1); renderFacts(); });
+}
+$("#btnAddFact").onclick = () => { FACTS.push({ kind: "확인된 사실", text: "", src: { title: "직접 입력" }, on: true, topic: "" }); renderFacts(); };
+$("#btnCopyFact").onclick = () => {
+  const name = $("#factCorp").textContent;
+  const blocks = KINDS.map(k => { const a = FACTS.filter(f => f.kind === k); return a.length ? `■ ${k}\n` + a.map(f => `- ${f.topic ? `[${f.topic}] ` : ""}${f.text}\n  (근거: ${(f.src && f.src.title) || "직접 입력"}${f.src && f.src.rcp ? ` ${dartLink(f.src.rcp)}` : ""})`).join("\n") : ""; }).filter(Boolean);
+  const crit = `■ 세 가지 기준\n누가 가장 이익인가: ${$("#cGain").value}\n누가 가장 손해인가: ${$("#cLoss").value}\n과정이 공정한가: ${$("#cFair").value}`;
+  copy(`${name} 팩트시트 (${kstToday()})\n\n${blocks.join("\n\n")}\n\n${crit}`, $("#btnCopyFact"));
+};
+
+/* ───────────────────────── ④ 질의서 ───────────────────────── */
+function initLetter(D) {
+  const c = D.company || {}; const today = kstToday();
+  $("#lNo").value = `제보-${ymd(today)}-01`;
+  $("#lTo").value = `${c.corp_name || D.name} 대표이사 ${c.ceo_nm || ""} / IR 담당자`.replace(/\s+/g, " ").trim();
+  $("#lAddr").value = c.adres || "";
+  const topRule = RULES.find(r => (D.docs || []).some(d => d.rules.includes(r.id)));
+  $("#lTitle").value = `<${shortName(D.name || c.corp_name)} ${topRule ? topRule.label : "공시"} 관련 취재>`;
+  $("#lDue").value = addDays(today, 3); $("#lPub").value = addDays(today, 4);
+  $("#letterEmpty").style.display = "none"; $("#letterWrap").style.display = "block";
+  makeLetter();
+}
+/** 팩트시트 평서체(…했다) → 질의서 경어체(…했습니다). */
+const formal = (t) => t.replace(/냈다/g, "냈습니다").replace(/었다/g, "었습니다").replace(/했다/g, "했습니다")
+  .replace(/공시다\./g, "공시입니다.").replace(/'이다\./g, "'입니다.").replace(/등: /, "등에 다음 내용이 있습니다: ");
+const circled = (n) => "①②③④⑤⑥⑦⑧⑨⑩"[n] || `(${n + 1})`;
+const koDate = (iso) => iso ? `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일` : "";
+function makeLetter() {
+  const m = me(); const outlet = m.outlet || "(매체명)", name = m.name || "(기자 이름)", phone = m.phone || "(연락처)";
+  const facts = FACTS.filter(f => f.on && f.kind !== "미확인" && f.text.trim());
+  const qs = FACTS.filter(f => f.on && f.kind === "미확인" && f.text.trim());
+  const L = [];
+  L.push(`문서번호: ${$("#lNo").value}`);
+  L.push(`수신: ${$("#lTo").value}`);
+  if ($("#lAddr").value) L.push(`주소: ${$("#lAddr").value}`);
+  L.push(`발신: ${outlet} ${name} 기자(${phone})`);
+  L.push(`제목: ${$("#lTitle").value}`);
+  L.push("");
+  L.push(`안녕하십니까. ${outlet} ${name} 기자입니다.`);
+  L.push(`귀사가 금융감독원 전자공시시스템(DART)에 낸 공시를 바탕으로 취재하고 있습니다. 공시로 확인한 내용은 다음과 같습니다.`);
+  L.push("");
+  const nm = shortName(DIAG ? (DIAG.name || (DIAG.company || {}).corp_name) : "");
+  const toYou = (t) => nm ? t.replace(new RegExp("^(주식회사\\s*)?" + nm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(은|는|이|가)\\s"), "귀사는 ") : t;
+  facts.forEach((f, i) => {
+    const t = f.text.trim();
+    if (f.kind === "회사 설명") L.push(`${circled(i)} 귀사는 ${(f.src && f.src.title || "공시").split(" · ")[0]}에 “${t}”라고 적었습니다.`);
+    else L.push(`${circled(i)} ${formal(toYou(t))}`);
+  });
+  if (facts.length) L.push("");
+  L.push(`이와 관련해 아래 질문에 대한 귀사의 설명을 듣고자 합니다. 답변은 기사에 충실히 반영하겠습니다.`);
+  L.push("");
+  qs.forEach((f, i) => { L.push(`[${i + 1}] ${(f.topic || "질문").replace(/\s*관련$/, "")} 관련`); L.push(f.text.trim()); L.push(""); });
+  L.push(`회신은 ${koDate($("#lDue").value)}까지 이메일이나 전화로 부탁드립니다. 기사는 ${koDate($("#lPub").value)} 보도를 목표로 하고 있습니다.`);
+  L.push(`기한 안에 답변을 받지 못하면 기사에 '답변을 받지 못했다'고만 적겠습니다. 추가로 설명하실 내용이 있으면 언제든 연락 주십시오.`);
+  L.push("");
+  L.push(`${outlet} ${name} 기자 드림 (${phone})`);
+  $("#letterOut").value = L.join("\n");
+}
+$("#btnLetter").onclick = makeLetter;
+$("#btnCopyLetter").onclick = () => copy($("#letterOut").value, $("#btnCopyLetter"));
+$("#steps").addEventListener("click", (e) => { if (e.target.dataset.step === "4" && FACTS.length) makeLetter(); });
+
+async function copy(text, btn) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+  const o = btn.textContent; btn.textContent = "복사했습니다"; setTimeout(() => btn.textContent = o, 1500);
+}
+
+/* ───────────────────────── 시작 ───────────────────────── */
+(function init() {
+  const t = kstToday(); $("#dEnd").value = t; $("#dBgn").value = addDays(t, -14);
+  renderRuleBox(); fillSettings(); loadSignals();
+  if (!key()) openSettings();
+})();
+</script>
+</body>
+</html>

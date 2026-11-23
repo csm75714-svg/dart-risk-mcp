@@ -7,5 +7,10 @@
     "icn1"
   ],
   "outputDirectory": "docs/tool",
-  "trailingSlash": false
+  "trailingSlash": false,
+  "functions": {
+    "api/grep.py": {
+      "maxDuration": 60
+    }
+  }
 }
