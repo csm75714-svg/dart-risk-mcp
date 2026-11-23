@@ -295,6 +295,17 @@ const fmtDe = (de) => de && de.length === 8 ? `${de.slice(0,4)}.${de.slice(4,6)}
 const dartLink = (rcp) => `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcp}`;
 const newsLink = (name) => `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(name)}`;
 function toNum(v) { if (v == null) return null; const s = String(v).replace(/,/g, "").trim(); if (!s || s === "-") return null; const n = Number(s); return isFinite(n) ? n : null; }
+/** 리픽싱 최저조정가액 — 발행 응답에 이미 있는 칸(추가 조회 없음). 비율은 소수 두 자리:
+ *  69.98%를 70.0%로 반올림하면 법정 하한(70%)과 화면이 어긋난다. */
+function refixFloor(b) { const f = toNum(b.act_mktprcfl_cvprc_lwtrsprc), c = toNum(b.cv_prc); if (f == null) return "-"; return `${f.toLocaleString()}원${c ? ` (${(f * 100 / c).toFixed(2)}%)` : ""}`; }
+/** 정정 대비표 — /api/grep 응답의 amend(정정 공시 앞의 정정항목·정정전·정정후 표). */
+function amendHTML(a) {
+  if (!a || !a.rows || !a.rows.length) return "";
+  return `<div class="tbl" style="margin-top:4px"><table><tr><th>정정 항목</th><th>정정 전</th><th>정정 후</th></tr>
+    ${a.rows.map(r => `<tr><td>${esc(r.item || "-")}</td><td>${esc(r.before || "-")}</td><td>${esc(r.after || "-")}</td></tr>`).join("")}</table></div>
+    ${a.reason ? `<div class="dim">정정 사유(원문): ${esc(a.reason)}</div>` : ""}
+    ${a.total > a.rows.length ? `<div class="dim">정정 대비표 ${a.total}행 중 ${a.rows.length}행 표시 · ${a.total - a.rows.length}행 생략 — 원문 확인</div>` : ""}`;
+}
 function eok(n) { if (n == null) return "-"; if (n === 0) return "0원"; const v = n / 1e8; return (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : v.toFixed(1).replace(/\.0$/, "")) + "억원"; }
 
 function me() { try { return JSON.parse(lsGet(LS_ME, "{}")) || {}; } catch (e) { return {}; } }
@@ -333,6 +344,32 @@ async function grep(rcp, terms) {
   return j;
 }
 
+/** 최대주주변경 원문 표 읽기(/api/control). */
+async function controlDetail(rcp) {
+  const r = await fetch(`${RELAY}/api/control?${new URLSearchParams({ rcept_no: rcp })}`, { headers: { "X-DART-Key": key() } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `원문 표 읽기 실패 (HTTP ${r.status})`);
+  return j;
+}
+/** 최근 최대주주변경 공시 한 건과 그 정정본(최신 1건)을 읽는다.
+ *  「…변경을수반하는…계약체결」류 예고성 공시는 「1. 변경내용」 표가 없어 뺀다(core와 같은 규칙).
+ *  둘을 나란히 두면 정정으로 무엇이 바뀌었는지가 표에서 보인다. */
+async function loadControl(docs) {
+  const cc = (docs || []).filter(d => /최대주주\s*변경/.test(d.report_nm) && !/계약/.test(d.report_nm))
+    .sort((a, b) => b.rcept_no.localeCompare(a.rcept_no));
+  const orig = cc.find(d => !d.amend);
+  if (!orig) return [];
+  const amends = cc.filter(d => d.amend && d.rcept_no > orig.rcept_no);
+  const picks = [orig, ...(amends.length ? [amends[0]] : [])];
+  const out = [];
+  for (const d of picks) {
+    try { out.push({ d, x: await controlDetail(d.rcept_no), amendCount: d === orig ? amends.length : 0 }); }
+    catch (e) { out.push({ d, err: e.message }); }
+  }
+  return out;
+}
+const won = (n) => n ? `${Number(n).toLocaleString()}원` : "-";
+
 /** 동시 실행 n개로 제한한 작업 풀. */
 async function pool(items, n, fn) {
   const out = new Array(items.length); let i = 0;
@@ -369,12 +406,15 @@ const RULES = [
       ["줄어든 사업 계획", "계획보다 줄어든 용도의 사업은 일정과 재원을 어떻게 다시 잡았습니까?"],
     ],
     hint: ["증자 대금으로 먼저 돈을 돌려받는 채권자(주관사·계열사 포함)", "증자에 참여한 주주 — 약속받은 사업 투자가 줄어든 경우", "배분 순위를 정한 절차와 그 사실을 투자자에게 알린 시점"] },
-  { id: "fundchange", label: "자금 사용 목적 변경", level: "watch",
-    desc: "유상증자·CB·BW 결정의 [기재정정] — 자금 용도가 바뀌었는지",
+  { id: "fundchange", label: "자금조달 결정 정정", level: "watch",
+    // 제목만 보면 「정정했다」까지가 사실이다. 자금 용도가 실제로 바뀌었는지는
+    // 원문의 정정 대비표를 봐야 안다 — 라벨이 「용도 변경」이면 23건 정정이 23건
+    // 용도 변경으로 읽힌다(모아라이프플러스 2026-11 실측).
+    desc: "유상증자·CB·BW 결정의 [기재정정] — 정정했다는 사실까지. 자금 용도가 바뀌었는지는 원문 정정 대비표로 확인",
     match: t => /^\[기재정정\].*(유상증자결정|전환사채권발행결정|신주인수권부사채권발행결정|교환사채권발행결정)/.test(t),
     terms: ["자금사용 목적", "자금조달의 목적", "변경 사유", "정정사유", "채무상환자금", "운영자금"],
     qs: [
-      ["자금 용도 변경 사유", "당초 공시한 자금 사용 목적을 바꾼 구체적인 사유는 무엇입니까?"],
+      ["정정 내용", "이번 정정으로 바뀐 항목(발행 조건·자금 사용 목적·일정 등)과 그 사유는 무엇입니까?"],
       ["변경 절차와 고지", "변경은 어떤 절차를 거쳐 결정했고, 이미 투자한 주주에게는 어떻게 알렸습니까?"],
     ],
     hint: ["바뀐 용도로 돈이 흘러가는 상대방(채권자·특수관계인 등)", "원래 용도를 믿고 투자한 주주", "변경 결정 절차와 공시 시점"] },
@@ -562,14 +602,26 @@ async function deepCheck(i, btn) {
   });
   box.innerHTML = html.join(""); btn.disabled = false;
 }
+/** 원문 검색 결과 문장 정리 — 표 한 줄(「| 운영자금 (원) | - |」)은 문장이 아니다.
+ *  칸을 「 · 」로 잇고, 값이 빈 칸·「-」뿐이라 뜻이 남지 않으면 버린다(null). */
+function cleanHit(t) {
+  const s = String(t || "").trim();
+  if (!s.includes("|")) return s;
+  const cells = s.split("|").map(x => x.trim()).filter(x => x && !/^[-–—:\s]+$/.test(x));
+  if (cells.length < 2) return null;            // 칸 하나뿐 → 제목 조각
+  const txt = cells.join(" · ");
+  if (txt.replace(/[\s·()0-9,.원%-]/g, "").length < 6) return null;   // 남는 낱말이 거의 없다
+  return txt;
+}
 function grepHTML(d, g) {
   const shown = new Set();
-  const found = g.results.filter(r => r.count).map(r => ({ ...r, hits: r.hits.filter(h => !shown.has(h.text) && shown.add(h.text)) }));
+  const found = g.results.filter(r => r.count).map(r => ({ ...r, hits: r.hits.map(h => ({ ...h, text: cleanHit(h.text) })).filter(h => h.text && !shown.has(h.text) && shown.add(h.text)) }));
   const none = g.results.filter(r => !r.count).map(r => r.term);
   return `<div class="small" style="margin-top:6px"><b>${esc(d.report_nm)}</b> <span class="dim">(${fmtDe(d.rcept_dt)}, 원문 ${g.char_count.toLocaleString()}자)</span>
     ${found.map(r => r.hits.map(h => `<div class="hit"><b>「${esc(r.term)}」</b> ${h.heading ? `<span class="dim">${esc(h.heading)} · </span>` : ""}${esc(h.text)} <span class="dim">(문서 ${h.pos}% 지점)</span></div>`).join("")
       + (r.count > r.hits.length ? `<div class="dim">… 「${esc(r.term)}」 ${r.count - r.hits.length}곳 더</div>` : "")).join("")}
-    ${none.length ? `<div class="dim">없음: ${none.map(esc).join(", ")}</div>` : ""}</div>`;
+    ${none.length ? `<div class="dim">없음: ${none.map(esc).join(", ")}</div>` : ""}
+    ${amendHTML(g.amend)}</div>`;
 }
 
 /* 회사 직접 찾기 — 뷰어의 corp-map.json(이름 → [corp_code, 종목코드]) */
@@ -640,6 +692,14 @@ async function runDiag(cc, name) {
   });
   step(78, "전환사채 발행…");
   D.cb = await safe("전환사채 발행", async () => (await dart("cvbdIsDecsn.json", { corp_code: cc, bgn_de: ymd(addDays(today, -365)), end_de: ymd(today) })).list || []) || [];
+  step(82, "대량보유 보고·최대주주 변경 원문…");
+  D.bulk = await safe("대량보유 보고", async () => {
+    const since = ymd(addDays(today, -365));
+    return ((await dart("majorstock.json", { corp_code: cc })).list || [])
+      .map(x => ({ ...x, de: String(x.rcept_dt || "").replace(/-/g, "") }))
+      .filter(x => x.de >= since).sort((a, b) => b.rcept_no.localeCompare(a.rcept_no));
+  }) || [];
+  D.control = await safe("최대주주 변경 원문", () => loadControl(D.docs)) || [];
   step(88, "핵심 공시 원문…");
   D.deep = [];
   const keyDocs = [];
@@ -675,6 +735,43 @@ function finTable(fin) {
   const cfs = fin.list.filter(x => x.fs_div === "CFS"); const rows = cfs.length ? cfs : fin.list.filter(x => x.fs_div === "OFS");
   const out = FIN_ROWS.map(([lab, re]) => { const r = rows.find(x => re.test((x.account_nm || "").trim())); return r ? { lab, cur: toNum(r.thstrm_amount), prev: toNum(r.frmtrm_amount), prev2: toNum(r.bfefrmtrm_amount) } : null; }).filter(Boolean);
   return { yr: fin.yr, basis: cfs.length ? "연결" : "별도", out, rcp: (rows[0] || {}).rcept_no };
+}
+
+/* 최대주주 변경 원문 표 · 대량보유 보고 — 진단 카드와 분석 노트가 함께 쓴다. */
+const CTRL_ROWS = [
+  ["변경 전 최대주주", x => x.prev_holder || "-"],
+  ["변경 후 최대주주", x => x.new_holder ? `${x.new_holder}${x.new_ratio ? ` (${x.new_ratio}%)` : ""}` : "-"],
+  ["명칭 표기", x => x.holder_type || "-"],
+  ["변경 사유", x => x.reason || "-"],
+  ["지분 인수 목적", x => x.purpose || "-"],
+  ["자기자금", x => won(x.self_fund)],
+  ["차입금", x => won(x.borrowed_fund)],
+  ["차입처", x => x.lender || "-"],
+  ["담보 내역", x => x.collateral || "-"],
+];
+function controlTableHTML(list, link = dartLink) {
+  if (!list || !list.length) return "";
+  const ok = list.filter(c => c.x && c.x.found);
+  const head = list.map(c => `<th>${fmtDe(c.d.rcept_dt)} ${c.d.amend ? "정정본" : "최초 공시"}<br><a href="${link(c.d.rcept_no)}" target="_blank" rel="noopener">${c.d.rcept_no}</a></th>`).join("");
+  const body = ok.length ? CTRL_ROWS.map(([lab, f]) => {
+    const vals = list.map(c => c.x && c.x.found ? f(c.x) : "");
+    const diff = list.length > 1 && new Set(vals).size > 1;
+    return `<tr${diff ? ' class="diff"' : ""}><td>${lab}${diff ? " <b>≠</b>" : ""}</td>${vals.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`;
+  }).join("") : "";
+  const notes = list.map(c => c.err ? `${c.d.rcept_no}: ${esc(c.err)} — 표가 없다는 뜻이 아니라 열지 못한 것입니다.`
+    : !c.x.found ? `${c.d.rcept_no}: 원문에서 「변경후 최대주주등」 표를 읽지 못했습니다 — 원문 링크로 확인하세요.`
+    : c.x.amended ? `${c.d.rcept_no}: 정정 공시라 정정 대비표 뒤의 본문에서 읽었습니다.` : "").filter(Boolean);
+  const amendN = (list[0] && list[0].amendCount) || 0;
+  return `${ok.length ? `<div class="tbl"><table><tr><th>항목</th>${head}</tr>${body}</table></div>` : ""}
+    ${amendN ? `<p class="small dim">최초 공시 뒤 정정 ${amendN}건 — 표에는 가장 최근 정정본만 나란히 두었습니다. 값이 다른 줄에 ≠를 붙였습니다.</p>` : ""}
+    ${notes.length ? `<p class="small dim">${notes.join("<br>")}</p>` : ""}`;
+}
+function bulkTableHTML(rows, link = dartLink, max = 12) {
+  if (!rows || !rows.length) return "";
+  const shown = rows.slice(0, max);
+  return `<div class="tbl"><table><tr><th>보고일</th><th>보고자</th><th class="num">보유 주식</th><th class="num">보유 비율</th><th class="num">비율 증감</th><th>보고 사유</th><th>공시</th></tr>
+    ${shown.map(b => `<tr><td>${fmtDe(b.de)}</td><td>${esc(b.repror || "-")}</td><td class="num">${esc(b.stkqy || "-")}</td><td class="num">${esc(b.stkrt || "-")}%</td><td class="num">${esc(b.stkrt_irds || "-")}</td><td class="small">${esc(b.report_resn || "-")}</td><td><a href="${link(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>
+    ${rows.length > max ? `<p class="small dim">최근 1년 보고 ${rows.length}건 중 최근 ${max}건 표시 · ${rows.length - max}건 생략</p>` : ""}`;
 }
 
 function renderDiag(D) {
@@ -741,9 +838,18 @@ function renderDiag(D) {
 
   <div class="card">
     <h2>전환사채 발행 결정 (최근 1년)</h2>
-    ${D.cb.length ? `<div class="tbl"><table><tr><th>회차</th><th class="num">권면총액</th><th class="num">전환가액</th><th>발행 방법</th><th>공시</th></tr>
-      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="num">${eok(toNum(b.bd_fta))}</td><td class="num">${esc(b.cv_prc || "-")}</td><td>${esc(b.bdis_mthn || "-")}</td><td><a href="${dartLink(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>`
+    ${D.cb.length ? `<div class="tbl"><table><tr><th>회차</th><th class="num">권면총액</th><th class="num">전환가액</th><th class="num">최저조정가액</th><th>발행 방법</th><th>공시</th></tr>
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="num">${eok(toNum(b.bd_fta))}</td><td class="num">${esc(b.cv_prc || "-")}</td><td class="num">${esc(refixFloor(b))}</td><td>${esc(b.bdis_mthn || "-")}</td><td><a href="${dartLink(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>`
       : '<p class="dim small">최근 1년 전환사채 발행 결정이 없습니다.</p>'}
+  </div>
+
+  <div class="card">
+    <h2>최대주주 변경 · 대량보유 보고 (최근 1년)</h2>
+    <h3>최대주주 변경 공시 원문 표</h3>
+    ${(D.control || []).length ? controlTableHTML(D.control) : '<p class="dim small">최근 1년 최대주주 변경 공시가 없습니다.</p>'}
+    <h3>주식등의 대량보유상황보고서</h3>
+    ${(D.bulk || []).length ? bulkTableHTML(D.bulk) : '<p class="dim small">최근 1년 대량보유 보고가 없거나 받지 못했습니다.</p>'}
+    <p class="small dim">대량보유 보고는 5% 이상 보유자가 내는 신고서라 최대주주와 같은 사람이 아닐 수 있습니다. 보고자와 최대주주의 관계는 원문으로 확인하세요.</p>
   </div>`;
 }
 const RC_NAME = { "11011": "사업보고서", "11012": "반기보고서", "11013": "1분기보고서", "11014": "3분기보고서" };
@@ -772,11 +878,33 @@ function buildFacts(D) {
   if (docs.length && amend >= 3) add("확인된 사실", `최근 1년 공시 ${docs.length}건 가운데 ${amend}건이 정정 공시다.`, { title: "DART 공시 목록" });
   // 3) 원문 문장(회사 설명)
   const seenSent = new Set(); let firstSaid = true;
-  for (const x of D.deep || []) for (const r of x.g.results) for (const h of r.hits.slice(0, 2)) {
+  for (const x of D.deep || []) for (const r of x.g.results) for (const h0 of r.hits.slice(0, 3)) {
+    const text = cleanHit(h0.text); if (!text) continue;
+    const h = { ...h0, text };
     if (seenSent.has(h.text)) continue; seenSent.add(h.text);
     add("회사 설명", h.text, { title: x.d.report_nm + (h.heading ? ` · ${h.heading}` : ""), rcp: x.d.rcept_no, de: x.d.rcept_dt }, firstSaid, "", 2);
     firstSaid = false;
   }
+  // 3-0) 정정 대비표 — 「정정했다」를 넘어 무엇이 바뀌었는지(원문 표 그대로, 앞의 세 항목만)
+  for (const x of D.deep || []) {
+    const a = x.g.amend; if (!a || !a.rows || !a.rows.length) continue;
+    const items = a.rows.slice(0, 3).map(r => `${r.item || "항목 미기재"}(정정 전 ${r.before || "-"} → 정정 후 ${r.after || "-"})`).join(", ");
+    add("확인된 사실", `${fmtKo(x.d.rcept_dt)} '${x.d.report_nm}'의 정정 대비표에서 바뀐 항목은 ${items}${a.total > 3 ? ` 등 ${a.total}개 행` : ""}이다.`, { title: x.d.report_nm + " · 정정 대비표", rcp: x.d.rcept_no, de: x.d.rcept_dt }, false, "", 3);
+  }
+  // 3-1) 최대주주 변경 원문 표 · 대량보유 보고
+  const ctrl = (D.control || []).filter(c => c.x && c.x.found);
+  const latest = ctrl[ctrl.length - 1];
+  if (latest) {
+    const x = latest.x, src = { title: latest.d.report_nm, rcp: latest.d.rcept_no, de: latest.d.rcept_dt };
+    add("확인된 사실", `${fmtKo(latest.d.rcept_dt)} ${latest.d.amend ? "정정 공시한 " : ""}'${latest.d.report_nm}' 기준 최대주주는 ${x.prev_holder || "(변경 전 미기재)"}에서 ${x.new_holder}${x.new_ratio ? `(소유비율 ${x.new_ratio}%)` : ""}${josaRo(x.new_holder)} 바뀌었다.`, src, true, "", 1);
+    add("확인된 사실", `같은 공시의 인수자금 조달방법은 자기자금 ${won(x.self_fund)}, 차입금 ${won(x.borrowed_fund)}${x.lender ? `(차입처 ${x.lender})` : ""}${x.collateral ? `, 담보 내역 ${x.collateral}` : ""}로 적혀 있다.`, src, false, "", 3);
+    if (x.reason) add("회사 설명", `변경 사유: ${x.reason}`, src, true, "", 2);
+    const n = (D.control[0] && D.control[0].amendCount) || 0;
+    if (n) add("미확인", `최대주주 변경 공시를 ${n}차례 정정한 이유와, 정정으로 바뀐 항목은 무엇입니까?`, { title: "질문 틀 · 최대주주·경영권 변동" }, false, "최대주주 변경 정정");
+  }
+  for (const b of (D.bulk || []).slice(0, 3))
+    add("확인된 사실", `${b.repror || "보고자"}${josa(b.repror || "보고자", "은", "는")} ${fmtKo(b.de)} 주식등의 대량보유상황보고서에서 ${b.stkqy || "-"}주(${b.stkrt || "-"}%, 비율 증감 ${b.stkrt_irds || "-"}%p)를 보유한다고 보고했다${b.report_resn ? `(보고 사유: ${b.report_resn})` : ""}.`,
+      { title: "주식등의 대량보유상황보고서", rcp: b.rcept_no, de: b.de }, false, "", 3);
   // 4) 재무
   const ft = finTable(D.fin);
   if (ft) {
@@ -944,6 +1072,7 @@ const NOTE_CSS = `
 .anote .legend{font-size:11.5px;color:var(--muted);margin-top:8px}
 .anote .legend i{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px;vertical-align:-1px}
 .anote table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0 16px}
+.anote .num{text-align:right;font-variant-numeric:tabular-nums}.anote h3.sub{font-size:14px;margin:14px 0 4px}.anote tr.diff td{background:#f3e6c8}.anote .tbl{overflow-x:auto}.anote .small{font-size:12px}.anote .dim{color:#6b6458}
 .anote th,.anote td{border-bottom:1px solid var(--rule);padding:7px 6px;text-align:left;vertical-align:top}
 .anote th{font-size:10.5px;font-weight:600;letter-spacing:.06em;color:var(--muted)}
 .anote td.r,.anote th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -1006,7 +1135,7 @@ $("#btnStruct").onclick = async () => {
   const btn = $("#btnStruct"); btn.disabled = true; msg.textContent = "원문 여는 중… (큰 문서는 20초 남짓)";
   try {
     const g = await grep(rcp, terms);
-    NOTE.struct = { d, rows: g.results.map(r => ({ term: r.term, hit: r.hits[0] || null, count: r.count })), chars: g.char_count };
+    NOTE.struct = { d, rows: g.results.map(r => ({ term: r.term, hit: r.hits.map(h => ({ ...h, text: cleanHit(h.text) })).find(h => h.text) || null, count: r.count })), chars: g.char_count };
     msg.textContent = `${g.results.filter(r => r.count).length}/${terms.length}개 항목을 찾았습니다.`;
   } catch (e) {
     NOTE.struct = { d, error: e.message };
@@ -1036,7 +1165,7 @@ function noteBody(D) {
   if ($("#nLead").value.trim()) H.push(`<section><p class="lead">${esc($("#nLead").value)}</p></section>`);
   H.push(`<div class="pull">최근 1년 공시 ${docs.length}건 가운데 유형 규칙에 걸린 공시 <b>${hitDocs.length}건</b>,<br>정정 공시 <b>${amend}건</b>.</div>`);
   let part = 0; const tag = (crim) => { part++; return `<span class="tag mono${crim ? " c" : ""}">PART ${String(part).padStart(2, "0")}</span>`; };
-  const roman = ["i.", "ii.", "iii.", "iv.", "v.", "vi."];
+  const roman = ["i.", "ii.", "iii.", "iv.", "v.", "vi.", "vii.", "viii."];
 
   // PART: 공시 흐름
   const mb = monthBuckets(docs); const mx = Math.max(1, ...mb.map(b => b.all));
@@ -1080,9 +1209,15 @@ function noteBody(D) {
       : `<p class="gap">감사의견 자료를 받지 못했거나 없다.</p>`}
     ${funds.length ? `<table><caption>공모·사모 자금 사용 · ${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준</caption><tr><th>구분</th><th>계획 용도</th><th class="r">계획</th><th class="r">사용</th><th>차이 사유</th></tr>
       ${funds.map(f => `<tr><td>${f.kind} ${esc(f.tm || "")}</td><td>${esc(f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-")}</td><td class="r">${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))}</td><td class="r">${eok(toNum(f.real_cptal_use_dtls_amount))}</td><td>${esc(f.dffrnc_occrrnc_resn || "-")}</td></tr>`).join("")}</table>` : ""}
-    ${(D.cb || []).length ? `<table><caption>전환사채 발행 결정 (최근 1년)</caption><tr><th>회차</th><th class="r">권면총액</th><th class="r">전환가액</th><th>공시</th></tr>
-      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="r">${eok(toNum(b.bd_fta))}</td><td class="r">${esc(b.cv_prc || "-")}</td><td><a href="${dartLink(b.rcept_no)}">원문</a></td></tr>`).join("")}</table>` : ""}
+    ${(D.cb || []).length ? `<table><caption>전환사채 발행 결정 (최근 1년)</caption><tr><th>회차</th><th class="r">권면총액</th><th class="r">전환가액</th><th class="r">최저조정가액</th><th>공시</th></tr>
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="r">${eok(toNum(b.bd_fta))}</td><td class="r">${esc(b.cv_prc || "-")}</td><td class="r">${esc(refixFloor(b))}</td><td><a href="${dartLink(b.rcept_no)}">원문</a></td></tr>`).join("")}</table>` : ""}
     <p class="src">금액은 억원 단위로 반올림했다. 정확한 값은 각 공시 원문을 따른다.</p></section>`);
+
+  // PART: 최대주주 · 대량보유
+  if ((D.control || []).length || (D.bulk || []).length) H.push(`<section>${tag(false)}<h2><span class="n">${roman[part - 1]}</span>최대주주 변경 · 대량보유 보고</h2>
+    ${(D.control || []).length ? `<h3 class="sub">최대주주 변경 공시 원문 표</h3>${controlTableHTML(D.control)}` : ""}
+    ${(D.bulk || []).length ? `<h3 class="sub">주식등의 대량보유상황보고서 (최근 1년)</h3>${bulkTableHTML(D.bulk, dartLink, 8)}` : ""}
+    <p class="src">대량보유 보고자는 최대주주와 같은 사람이 아닐 수 있다. 두 사람의 관계는 원문으로 확인한다.</p></section>`);
 
   // PART: 남은 질문
   const qs = FACTS.filter(f => f.on && f.kind === "미확인" && f.text.trim());
@@ -1100,6 +1235,8 @@ function noteBody(D) {
   used.push(["accnutAdtorNmNdAdtOpinion.json", "감사인·감사의견", au.length ? `${au.length}개 사업연도` : "받지 못했거나 없음"]);
   used.push(["pssrp/prvsrpCptalUseDtls.json", "자금 사용 내역", D.funds ? `${D.funds.yr}년 ${RC_NAME[D.funds.rc]} · ${funds.length}건` : "없거나 받지 못함"]);
   used.push(["cvbdIsDecsn.json", "전환사채 발행 결정", `${(D.cb || []).length}건`]);
+  used.push(["majorstock.json", "주식등의 대량보유상황보고", `최근 1년 ${(D.bulk || []).length}건`]);
+  for (const c of D.control || []) used.push(["최대주주 변경 원문 표", c.d.report_nm, `${c.d.rcept_no} · ${c.err ? "열지 못함" : c.x.found ? "표 읽음" : "표를 읽지 못함"}`]);
   for (const x of D.deep || []) used.push(["원문 문구 검색", x.d.report_nm, `${x.d.rcept_no} · ${x.g.results.filter(r => r.count).length}/${x.g.results.length}개 문구 발견`]);
   if (S && !S.error) used.push(["원문 문구 검색", S.d.report_nm, `${S.d.rcept_no} · 거래 구조 항목`]);
   H.push(`<div class="apx mono"><h3>APPENDIX — 이 노트에 쓴 자료</h3>
@@ -1244,7 +1381,22 @@ function articleMaterial(D) {
     L.push(""); L.push(`■ 공모·사모 자금 사용 (${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준)`);
     funds.forEach(f => L.push(`- ${f.kind} ${f.tm || "-"}회차 · 계획 '${f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-"}' ${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))} · 사용 '${f.real_cptal_use_dtls_cn || "-"}' ${eok(toNum(f.real_cptal_use_dtls_amount))}${f.dffrnc_occrrnc_resn && f.dffrnc_occrrnc_resn !== "-" ? ` · 차이 사유: ${f.dffrnc_occrrnc_resn}` : ""}`));
   }
-  if ((D.cb || []).length) { L.push(""); L.push("■ 전환사채 발행 결정 (최근 1년)"); D.cb.forEach(b => L.push(`- ${b.bd_tm || "-"}회차 · 권면총액 ${eok(toNum(b.bd_fta))} · 전환가액 ${b.cv_prc || "-"} · 접수번호 ${b.rcept_no}`)); }
+  const ctl = (D.control || []);
+  if (ctl.length) {
+    L.push(""); L.push("■ 최대주주 변경 공시 원문 표");
+    for (const c of ctl) {
+      const head = `- ${fmtDe(c.d.rcept_dt)} ${c.d.amend ? "정정본" : "최초 공시"} (접수번호 ${c.d.rcept_no})`;
+      if (c.err || !c.x.found) { L.push(`${head}: 표를 읽지 못함(내용이 없다는 뜻이 아님 — 원문 확인)`); continue; }
+      L.push(`${head}: ${CTRL_ROWS.map(([lab, f]) => `${lab} ${f(c.x)}`).join(" · ")}`);
+    }
+    if (ctl[0].amendCount) L.push(`- 최초 공시 뒤 정정 ${ctl[0].amendCount}건(위에는 가장 최근 정정본만)`);
+  }
+  if ((D.bulk || []).length) {
+    L.push(""); L.push("■ 주식등의 대량보유상황보고서 (최근 1년, 보고자는 최대주주와 다를 수 있음)");
+    D.bulk.slice(0, 12).forEach(b => L.push(`- ${fmtDe(b.de)} ${b.repror || "-"} · ${b.stkqy || "-"}주 · ${b.stkrt || "-"}% (증감 ${b.stkrt_irds || "-"}%p) · 보고 사유: ${b.report_resn || "-"} · 접수번호 ${b.rcept_no}`));
+    if (D.bulk.length > 12) L.push(`- 외 ${D.bulk.length - 12}건`);
+  }
+  if ((D.cb || []).length) { L.push(""); L.push("■ 전환사채 발행 결정 (최근 1년)"); D.cb.forEach(b => L.push(`- ${b.bd_tm || "-"}회차 · 권면총액 ${eok(toNum(b.bd_fta))} · 전환가액 ${b.cv_prc || "-"} · 최저조정가액 ${refixFloor(b)} · 접수번호 ${b.rcept_no}`)); }
   const qs = FACTS.filter(f => f.kind === "미확인" && f.on && f.text.trim());
   L.push(""); L.push("■ 아직 확인되지 않은 사항 (질의서 질문)");
   if (!qs.length) L.push("- (없음)");

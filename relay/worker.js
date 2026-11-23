@@ -37,6 +37,7 @@ const ALLOWED_ENDPOINTS = new Set([
   "cndlCaplScritsNrdmpBlce.json",
   "adtServcCnclsSttus.json",
   "accnutAdtorNonAdtServcCnclsSttus.json",
+  "majorstock.json",
 ]);
 
 const CORS_HEADERS = {
