@@ -53,6 +53,7 @@ const ALLOWED_ENDPOINTS = new Set([
   "cndlCaplScritsNrdmpBlce.json",          // 조건부자본증권 미상환 잔액
   "adtServcCnclsSttus.json",               // 감사용역 계약 체결 현황
   "accnutAdtorNonAdtServcCnclsSttus.json", // 비감사용역 계약 체결 현황
+  "majorstock.json",                       // 주식등의 대량보유상황보고 (보고서 페이지)
 ]);
 
 /**
@@ -69,6 +70,7 @@ const NO_CACHE_ENDPOINTS = new Set([
   "cvbdIsDecsn.json",
   "bdwtIsDecsn.json",
   "exbdIsDecsn.json",
+  "majorstock.json", // 대량보유 보고는 수시로 접수된다
 ]);
 
 const CACHE_SECONDS = 21600; // 6시간 — 정기보고서 제출 시점에만 값이 바뀐다
