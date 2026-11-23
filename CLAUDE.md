@@ -1904,6 +1904,10 @@ rcept 계열 136건(43%)이고 그중 **116건(85%)이 낡았다**(최고 4개�
   문서 전부를 서버에서 훑고 문장만 돌려준다. **서버 키 폴백이 없다**(X-DART-Key 필수). `vercel.json`에서
   `maxDuration` 60초.
 - 후보 발굴은 이용자가 누를 때만 도는 기간 조회(최대 3개월, DART 규칙)다 — 「시장 전체 일일 자동 스캔」(비범위)이 아니다.
+- **사이트 비밀번호(2026-11-23)**: 이 포크 배포는 운영자와 허락받은 사람만 쓴다. 루트 `middleware.js`(Vercel Routing
+  Middleware)가 모든 경로 앞에서 HTTP Basic 인증을 요구하고 비밀번호는 환경변수 `SITE_PASSWORD`에서 읽는다
+  (`SITE_USER`는 선택). ⚠ **미설정이면 잠근다(503, fail-closed)**. ⚠ `.vercelignore`가 루트를 `/*`로 통째로
+  빼므로 `!middleware.js`가 없으면 미들웨어가 배포되지 않아 **비밀번호 없이 열린다** — `tests/test_site_password_middleware.py`가 고정.
 
 ## 공개 리스크 뷰어 인프라 (docs/tool/)
 
