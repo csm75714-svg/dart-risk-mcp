@@ -89,7 +89,7 @@ pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 <header>
   <div class="wrap">
     <div class="top">
-      <h1>공시 취재 보고서 <span class="dim small">· 후보 발굴부터 질의서까지</span></h1>
+      <h1>공시 취재 보고서 <span class="dim small">· 후보 발굴부터 질의서·분석 노트까지</span></h1>
       <button class="btn ghost sm" id="btnSettings">설정 (DART 키·발신자)</button>
     </div>
     <nav class="steps" id="steps">
@@ -97,6 +97,7 @@ pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <button data-step="2">② 종합 진단</button>
       <button data-step="3">③ 팩트시트</button>
       <button data-step="4">④ 질의서</button>
+      <button data-step="5">⑤ 분석 노트</button>
     </nav>
   </div>
 </header>
@@ -211,6 +212,37 @@ pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       </div>
     </div>
     <div class="card"><textarea id="letterOut" style="min-height:520px;font-size:14px;line-height:1.75"></textarea></div>
+  </div>
+</section>
+
+<!-- ⑤ 분석 노트 -->
+<section class="step" data-step="5">
+  <div class="card" id="noteEmpty"><p class="dim">② 종합 진단을 먼저 실행하세요. ③ 팩트시트에서 고른 항목이 노트에 그대로 들어갑니다.</p></div>
+  <div id="noteWrap" style="display:none">
+    <div class="card">
+      <h2>⑤ 분석 노트 — 진단·팩트시트를 한 편의 보고서로</h2>
+      <p class="small dim">정해진 틀에 진단 결과를 채웁니다. 문장을 지어내지 않고, 점수·판정 표현을 쓰지 않습니다.
+        제목·요약은 고쳐 쓰세요. ③ 팩트시트를 고친 뒤에는 「다시 만들기」를 누르면 반영됩니다.</p>
+      <div class="grid2">
+        <div><label>제목 첫 줄</label><input type="text" id="nH1" style="width:100%"></div>
+        <div><label>제목 강조 줄(붉은 글씨)</label><input type="text" id="nH2" style="width:100%"></div>
+      </div>
+      <div style="margin-top:8px"><label>요약(제목 아래 한두 문장)</label><textarea id="nDeck"></textarea></div>
+      <div style="margin-top:8px"><label>첫 단락</label><textarea id="nLead" style="min-height:90px"></textarea></div>
+      <h3>거래 구조 표 (선택)</h3>
+      <p class="small dim">공시 하나를 고르면 그 유형에서 보통 확인하는 항목(합병비율·전환가액·대표주관회사 등)을 원문에서 찾아 표로 넣습니다. 못 찾은 칸은 「원문에서 확인 필요」로 남깁니다.</p>
+      <div class="row">
+        <select id="nDoc" style="flex:1;min-width:240px;max-width:100%"></select>
+        <button class="btn ghost" id="btnStruct">원문에서 항목 찾기</button>
+        <span id="nStructMsg" class="small dim"></span>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="btnNote">다시 만들기</button>
+        <button class="btn ghost" id="btnNoteSave">HTML 파일로 저장</button>
+        <button class="btn ghost" id="btnNotePrint">인쇄 · PDF로 저장</button>
+      </div>
+    </div>
+    <div id="notePreview"></div>
   </div>
 </section>
 
@@ -639,6 +671,7 @@ function renderDiag(D) {
       <div><span class="dim">결산월</span> ${esc(c.acc_mt || "-")}월 · <span class="dim">설립</span> ${fmtDe(c.est_dt)}</div>
     </div>
     <div class="row" style="margin-top:10px"><button class="btn" onclick="go(3)">팩트시트로 →</button>
+      <button class="btn ghost" onclick="document.querySelector('#steps [data-step=&quot;5&quot;]').click()">분석 노트로 →</button>
       <a class="small" href="${newsLink(c.corp_name || D.name)}" target="_blank" rel="noopener">보도 확인 ↗</a></div>
   </div>
 
@@ -839,6 +872,252 @@ function makeLetter() {
 $("#btnLetter").onclick = makeLetter;
 $("#btnCopyLetter").onclick = () => copy($("#letterOut").value, $("#btnCopyLetter"));
 $("#steps").addEventListener("click", (e) => { if (e.target.dataset.step === "4" && FACTS.length) makeLetter(); });
+
+/* ───────────────────────── ⑤ 분석 노트 ─────────────────────────
+ * 진단(DIAG)·팩트시트(FACTS)를 정해진 틀로 한 편의 보고서로 엮는다.
+ * 원칙: 문장을 지어내지 않는다(틀 + 숫자 + 공시 원문 인용), 점수·등급·판정 어휘 없음,
+ * 못 받은 자료는 「없다」가 아니라 「받지 못했다」로 적는다.
+ */
+const STRUCT_TERMS = [
+  [/합병|분할/, ["합병비율", "합병가액", "외부평가기관", "합병기일", "주식매수청구", "합병상대회사"]],
+  [/전환사채|신주인수권부사채|교환사채/, ["권면총액", "전환가액", "최저 조정가액", "사채만기일", "발행대상자", "자금조달의 목적"]],
+  [/증권신고서|투자설명서|유상증자|증권발행실적/, ["모집총액", "발행가액", "대표주관회사", "자금의 사용목적", "채권자 지위", "이해상충"]],
+  [/최대주주/, ["변경 전", "변경 후", "변경사유", "인수자금", "취득주식수"]],
+  [/양수|양도|취득|처분/, ["거래상대방", "거래금액", "자기자본대비", "외부평가", "목적"]],
+  [/사업보고서|반기보고서|분기보고서/, ["정정사유", "정정 전", "정정 후", "재작성", "오류수정"]],
+];
+let NOTE = { struct: null };
+
+const NOTE_CSS = `
+.anote{--paper:#faf8f3;--ink:#141414;--muted:#5a564f;--rule:#e3ddd0;--crimson:#a02525;--under:#efe9d8;
+  background:var(--paper);color:var(--ink);font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+  font-size:15.5px;line-height:1.72;max-width:860px;margin:0 auto;padding:48px 48px 64px;border:1px solid var(--rule);overflow:hidden}
+.anote .mono{font-family:ui-monospace,"SFMono-Regular",Consolas,monospace}
+.anote .mast{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:3px double var(--ink);padding-bottom:10px;margin-bottom:28px;font-size:11px;letter-spacing:.06em;color:var(--muted)}
+.anote .mast b{color:var(--ink)}
+.anote h1{font-family:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;font-weight:700;font-size:44px;line-height:1.14;letter-spacing:-.02em;margin:4px 0 16px}
+.anote h1 em{font-style:normal;color:var(--crimson)}
+.anote .deck{font-family:"Noto Serif KR","Nanum Myeongjo",serif;font-size:18.5px;line-height:1.6;color:var(--muted);margin:0 0 26px}
+.anote .by{display:flex;gap:6px 20px;flex-wrap:wrap;border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);padding:8px 0;margin-bottom:34px;font-size:11.5px;color:var(--muted)}
+.anote .by b{color:var(--ink)}
+.anote section{margin-bottom:46px}
+.anote .tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--paper);background:var(--ink);padding:3px 9px;margin-bottom:12px}
+.anote .tag.c{background:var(--crimson)}
+.anote h2{font-size:25px;font-weight:800;letter-spacing:-.01em;margin:0 0 14px;line-height:1.3}
+.anote h2 .n{font-family:"Noto Serif KR",serif;font-weight:400;color:var(--crimson);margin-right:10px}
+.anote p{margin:0 0 12px}
+.anote .lead::first-letter{font-family:"Noto Serif KR",serif;font-weight:700;font-size:60px;line-height:.9;float:left;margin:6px 8px 0 0;color:var(--crimson)}
+.anote .pull{font-family:"Noto Serif KR",serif;font-size:23px;line-height:1.45;text-align:center;border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);padding:22px 8px;margin:30px 0}
+.anote .pull b{color:var(--crimson)}
+.anote .callout{background:var(--under);border:1px solid #cfc9bd;padding:14px 18px;margin:12px 0;font-size:14.5px}
+.anote .callout .lb{display:block;font-size:10.5px;font-weight:600;letter-spacing:.12em;color:var(--crimson);margin-bottom:4px}
+.anote .ctitle{font-size:11.5px;font-weight:600;letter-spacing:.06em;color:var(--muted);margin:18px 0 10px}
+.anote .bars{display:flex;flex-direction:column;gap:5px}
+.anote .br{display:grid;grid-template-columns:64px 1fr 76px;gap:10px;align-items:center;font-size:12px}
+.anote .trk{height:15px;background:var(--rule);position:relative}
+.anote .trk i{position:absolute;left:0;top:0;bottom:0;background:#9b958a}
+.anote .trk i.h{background:var(--crimson)}
+.anote .br span:last-child{text-align:right}
+.anote .legend{font-size:11.5px;color:var(--muted);margin-top:8px}
+.anote .legend i{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px;vertical-align:-1px}
+.anote table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0 16px}
+.anote th,.anote td{border-bottom:1px solid var(--rule);padding:7px 6px;text-align:left;vertical-align:top}
+.anote th{font-size:10.5px;font-weight:600;letter-spacing:.06em;color:var(--muted)}
+.anote td.r,.anote th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.anote caption{text-align:left;font-size:11.5px;font-weight:600;color:var(--muted);padding-bottom:6px}
+.anote .tl{display:grid;grid-template-columns:86px 1fr;gap:12px;border-bottom:1px solid var(--rule);padding:7px 0;font-size:14px}
+.anote .tl time{font-size:12px;font-weight:600;color:var(--muted)}
+.anote .tg{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;margin-right:6px;background:var(--crimson);color:var(--paper);white-space:nowrap}
+.anote .tg.w{background:#3a3a3a}
+.anote .cmp{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--ink);margin:16px 0}
+.anote .cmp>div{padding:14px 16px}
+.anote .cmp>div+div{border-left:1px solid var(--ink)}
+.anote .cmp h4{font-size:13.5px;margin:0 0 8px;color:var(--crimson)}
+.anote .cmp p{font-size:13.5px;white-space:pre-wrap;margin:0}
+.anote ol.qs{padding-left:22px;margin:0}
+.anote ol.qs li{margin-bottom:12px}
+.anote ol.qs b{display:block;font-size:13px;color:var(--crimson)}
+.anote .src{font-size:12px;color:var(--muted)}
+.anote a{color:inherit}
+.anote .gap{font-size:13px;color:var(--muted);font-style:italic}
+.anote .apx{background:var(--ink);color:var(--paper);padding:26px 30px;margin:40px -48px -64px;font-size:12px;line-height:1.7}
+.anote .apx h3{color:#f4d35e;font-size:12.5px;letter-spacing:.1em;margin:0 0 12px}
+.anote .apx .it{border-left:2px solid #f4d35e;padding-left:12px;margin-bottom:8px}
+.anote .apx a{color:#f4d35e}
+.anote .apx .fine{color:#c8c2af;border-top:1px solid #f4d35e;padding-top:12px;margin-top:16px}
+@media (max-width:720px){.anote{padding:28px 18px 40px}.anote h1{font-size:31px}.anote .cmp{grid-template-columns:1fr}
+  .anote .cmp>div+div{border-left:0;border-top:1px solid var(--ink)}.anote .apx{margin:32px -18px -40px;padding:20px 18px}
+  .anote .br{grid-template-columns:52px 1fr 64px}}
+`;
+
+const corpCls = (c) => c === "Y" ? "코스피" : c === "K" ? "코스닥" : c === "N" ? "코넥스" : "";
+
+/** 진단이 끝났을 때·⑤를 열 때 입력 칸 기본값을 채운다(이미 고친 값은 회사가 바뀔 때만 덮는다). */
+function initNote(D) {
+  const c = D.company || {}; const nm = shortName(D.name || c.corp_name); const docs = D.docs || [];
+  const amend = docs.filter(d => d.amend).length;
+  const counts = RULES.map(r => [r, docs.filter(d => d.rules.includes(r.id)).length]).filter(([, n]) => n).sort((a, b) => b[1] - a[1]);
+  const top = counts[0];
+  $("#nH1").value = `${nm},`;
+  $("#nH2").value = top ? `${top[0].label} 공시 ${top[1]}건` : `최근 1년 공시 ${docs.length}건`;
+  $("#nDeck").value = `${corpCls(c.corp_cls) ? corpCls(c.corp_cls) + " 상장사 " : ""}${nm}${josa(nm, "이", "가")} 최근 1년 DART에 낸 공시 ${docs.length}건을 유형별로 정리하고, 원문·재무·감사 자료와 대조했다.`;
+  const est = c.est_dt && c.est_dt.length === 8 ? `${c.est_dt.slice(0, 4)}년 설립된 ` : "";
+  const region = (c.adres || "").split(/\s+/).slice(0, 2).join(" ");
+  const lead = [];
+  lead.push(`${nm}${josa(nm, "은", "는")} ${region ? region + "에 본점을 둔 " : ""}${est}${corpCls(c.corp_cls) || ""}${corpCls(c.corp_cls) ? " " : ""}상장사다${c.ceo_nm ? `(대표 ${c.ceo_nm})` : ""}.`);
+  lead.push(`최근 1년(${fmtDe(ymd(addDays(kstToday(), -365)))}~${fmtDe(ymd(kstToday()))}) DART 공시는 ${docs.length}건이고, 그중 ${amend}건${docs.length ? `(${Math.round(amend * 100 / docs.length)}%)` : ""}이 정정 공시다.`);
+  if (counts.length) lead.push(`유형별로는 ${counts.map(([r, n]) => `${r.label} ${n}건`).join(", ")}이 확인됐다.`);
+  $("#nLead").value = lead.join(" ");
+  const opts = docs.slice().sort((a, b) => (b.rules.length ? 1 : 0) - (a.rules.length ? 1 : 0) || b.rcept_no.localeCompare(a.rcept_no));
+  $("#nDoc").innerHTML = `<option value="">— 공시 고르기 —</option>` + opts.map(d => `<option value="${d.rcept_no}">${fmtDe(d.rcept_dt)} ${esc(d.report_nm)}${d.rules.length ? " ●" : ""}</option>`).join("");
+  NOTE = { struct: null, cc: D.cc };
+  $("#nStructMsg").textContent = "";
+  $("#noteEmpty").style.display = "none"; $("#noteWrap").style.display = "block";
+}
+
+$("#btnStruct").onclick = async () => {
+  const rcp = $("#nDoc").value; const msg = $("#nStructMsg");
+  if (!rcp || !DIAG) { msg.textContent = "공시를 먼저 고르세요."; return; }
+  const d = (DIAG.docs || []).find(x => x.rcept_no === rcp);
+  const terms = (STRUCT_TERMS.find(([re]) => re.test(d.report_nm)) || [null, ["목적", "금액", "상대방", "일정"]])[1];
+  const btn = $("#btnStruct"); btn.disabled = true; msg.textContent = "원문 여는 중… (큰 문서는 20초 남짓)";
+  try {
+    const g = await grep(rcp, terms);
+    NOTE.struct = { d, rows: g.results.map(r => ({ term: r.term, hit: r.hits[0] || null, count: r.count })), chars: g.char_count };
+    msg.textContent = `${g.results.filter(r => r.count).length}/${terms.length}개 항목을 찾았습니다.`;
+  } catch (e) {
+    NOTE.struct = { d, error: e.message };
+    msg.textContent = `열지 못했습니다 — ${e.message}`;
+  }
+  btn.disabled = false; renderNote();
+};
+
+function monthBuckets(docs) {
+  const out = []; const t = kstToday(); let y = +t.slice(0, 4), m = +t.slice(5, 7);
+  for (let i = 0; i < 12; i++) { out.unshift({ key: `${y}${String(m).padStart(2, "0")}`, lab: `${String(y).slice(2)}.${String(m).padStart(2, "0")}`, all: 0, hit: 0 }); m--; if (!m) { m = 12; y--; } }
+  for (const d of docs) { const b = out.find(o => o.key === String(d.rcept_dt).slice(0, 6)); if (b) { b.all++; if (d.rules.length) b.hit++; } }
+  return out;
+}
+
+function noteBody(D) {
+  const c = D.company || {}; const nm = shortName(D.name || c.corp_name); const docs = D.docs || [];
+  const m = me(); const today = kstToday();
+  const amend = docs.filter(d => d.amend).length; const hitDocs = docs.filter(d => d.rules.length);
+  const H = [];
+  H.push(`<header class="mast mono"><div><b>${esc(m.outlet || "취재팀")}</b> · DISCLOSURE ANALYSIS NOTE</div><div style="text-align:right">${esc(fmtDe(ymd(today)))}<br>공시 기준 · 판정 없음</div></header>`);
+  H.push(`<h1>${esc($("#nH1").value)}<br><em>${esc($("#nH2").value)}</em></h1>`);
+  if ($("#nDeck").value.trim()) H.push(`<p class="deck">${esc($("#nDeck").value)}</p>`);
+  H.push(`<div class="by mono"><span><b>대상</b> ${esc(c.corp_name || D.name)}${c.stock_code ? ` / ${esc(corpCls(c.corp_cls))} ${esc(c.stock_code)}` : ""}</span>
+    <span><b>기간</b> 최근 1년 (${fmtDe(ymd(addDays(today, -365)))}~${fmtDe(ymd(today))})</span><span><b>자료</b> DART 오픈API · 공시 원문</span>
+    ${m.name ? `<span><b>작성</b> ${esc(m.name)}</span>` : ""}</div>`);
+  if ($("#nLead").value.trim()) H.push(`<section><p class="lead">${esc($("#nLead").value)}</p></section>`);
+  H.push(`<div class="pull">최근 1년 공시 ${docs.length}건 가운데 유형 규칙에 걸린 공시 <b>${hitDocs.length}건</b>,<br>정정 공시 <b>${amend}건</b>.</div>`);
+  let part = 0; const tag = (crim) => { part++; return `<span class="tag mono${crim ? " c" : ""}">PART ${String(part).padStart(2, "0")}</span>`; };
+  const roman = ["i.", "ii.", "iii.", "iv.", "v.", "vi."];
+
+  // PART: 공시 흐름
+  const mb = monthBuckets(docs); const mx = Math.max(1, ...mb.map(b => b.all));
+  const counts = RULES.map(r => [r, docs.filter(d => d.rules.includes(r.id))]).filter(([, a]) => a.length);
+  H.push(`<section>${tag(true)}<h2><span class="n">${roman[part - 1]}</span>공시 흐름</h2>
+    <p>최근 12개월 동안 월별로 낸 공시 수다. 붉은 부분은 이 보고서의 유형 규칙(재무제표 정정·조달자금·감사 등)에 걸린 공시다.</p>
+    <div class="ctitle mono">월별 공시 건수</div><div class="bars">${mb.map(b => `<div class="br mono"><span>${b.lab}</span><div class="trk"><i style="width:${(b.all * 100 / mx).toFixed(1)}%"></i><i class="h" style="width:${(b.hit * 100 / mx).toFixed(1)}%"></i></div><span>${b.hit} / ${b.all}</span></div>`).join("")}</div>
+    <div class="legend mono"><i style="background:#a02525"></i>유형 규칙에 걸린 공시<i style="background:#9b958a"></i>전체 공시 (오른쪽 숫자: 걸린 / 전체)</div>
+    ${counts.length ? `<table><caption>유형별 건수</caption><tr><th>유형</th><th class="r">건수</th><th>가장 최근 공시</th></tr>
+      ${counts.map(([r, a]) => { const l = a.slice().sort((x, y) => y.rcept_no.localeCompare(x.rcept_no))[0]; return `<tr><td>${esc(r.label)}</td><td class="r">${a.length}</td><td>${fmtDe(l.rcept_dt)} <a href="${dartLink(l.rcept_no)}">${esc(l.report_nm)}</a></td></tr>`; }).join("")}</table>` : `<p class="gap">유형 규칙에 걸린 공시가 없다.</p>`}
+    ${hitDocs.length ? `<div class="ctitle mono">유형 규칙에 걸린 공시 (최근순${hitDocs.length > 20 ? ` · ${hitDocs.length}건 중 20건` : ""})</div>
+      ${hitDocs.slice().sort((a, b) => b.rcept_no.localeCompare(a.rcept_no)).slice(0, 20).map(d => `<div class="tl"><time class="mono">${fmtDe(d.rcept_dt)}</time><div>${d.rules.map(id => `<span class="tg mono${RULE[id].level === "first" ? "" : " w"}">${esc(RULE[id].label)}</span>`).join("")}<a href="${dartLink(d.rcept_no)}">${esc(d.report_nm)}</a></div></div>`).join("")}
+      ${hitDocs.length > 20 ? `<p class="src">나머지 ${hitDocs.length - 20}건은 DART 공시 목록에서 확인할 수 있다.</p>` : ""}` : ""}</section>`);
+
+  // PART: 확인된 사실과 회사 설명
+  const facts = FACTS.filter(f => f.on && f.kind === "확인된 사실" && f.text.trim());
+  const said = FACTS.filter(f => f.on && f.kind === "회사 설명" && f.text.trim());
+  const srcLine = (f) => `<div class="src">근거: ${f.src && f.src.rcp ? `<a href="${dartLink(f.src.rcp)}">${esc(f.src.title)}</a>` : esc((f.src && f.src.title) || "직접 입력")}${f.src && f.src.de ? ` · ${fmtDe(f.src.de)}` : ""}</div>`;
+  if (facts.length || said.length) H.push(`<section>${tag()}<h2><span class="n">${roman[part - 1]}</span>공시로 확인한 것</h2>
+    ${facts.map(f => `<div class="callout"><span class="lb mono">확인된 사실</span>${esc(f.text)}${srcLine(f)}</div>`).join("")}
+    ${said.map(f => `<div class="callout"><span class="lb mono">회사 설명 · 공시 원문 인용</span>“${esc(f.text)}”${srcLine(f)}</div>`).join("")}
+    <p class="src">「회사 설명」은 회사가 공시에 적은 문장을 그대로 옮긴 것으로, 그 내용이 사실인지 따로 확인한 것은 아니다.</p></section>`);
+
+  // PART: 거래 구조
+  const S = NOTE.struct;
+  if (S) H.push(`<section>${tag()}<h2><span class="n">${roman[part - 1]}</span>거래 구조</h2>
+    <p>${fmtKo(S.d.rcept_dt)} 공시 「<a href="${dartLink(S.d.rcept_no)}">${esc(S.d.report_nm)}</a>」 원문에서 항목별로 찾은 첫 문장이다.</p>
+    ${S.error ? `<p class="gap">원문을 열지 못했다(${esc(S.error)}). 항목이 없다는 뜻이 아니다.</p>`
+      : `<table><tr><th style="width:22%">항목</th><th>원문 문장</th></tr>${S.rows.map(r => `<tr><td><b>${esc(r.term)}</b></td><td>${r.hit ? `${esc(r.hit.text)}${r.hit.heading ? `<div class="src">${esc(r.hit.heading)}</div>` : ""}` : `<span class="gap">원문에서 확인 필요</span>`}</td></tr>`).join("")}</table>
+        <p class="src">낱말로 찾은 결과다(원문 ${S.chars.toLocaleString()}자). 표의 칸이 서로 다른 단락에서 왔을 수 있으니 원문과 대조해 쓴다.</p>`}</section>`);
+
+  // PART: 재무·감사·자금
+  const ft = finTable(D.fin); const au = (D.audit || []).slice().sort((a, b) => a.yr - b.yr);
+  const funds = D.funds ? D.funds.rows : [];
+  H.push(`<section>${tag()}<h2><span class="n">${roman[part - 1]}</span>재무·감사·자금 사용</h2>
+    ${ft && ft.out.length ? `<table><caption>주요 재무 · ${ft.yr}년 사업보고서 · ${ft.basis}</caption><tr><th>계정</th><th class="r">${ft.yr - 2}</th><th class="r">${ft.yr - 1}</th><th class="r">${ft.yr}</th></tr>
+      ${ft.out.map(r => `<tr><td>${r.lab}</td><td class="r">${eok(r.prev2)}</td><td class="r">${eok(r.prev)}</td><td class="r">${eok(r.cur)}</td></tr>`).join("")}</table>`
+      : `<p class="gap">사업보고서 재무 자료를 받지 못했다.</p>`}
+    ${au.length ? `<table><caption>감사인·감사의견</caption><tr><th>사업연도</th><th>감사인</th><th>의견</th><th>강조사항 등</th></tr>
+      ${au.map(a => `<tr><td>${a.yr}</td><td>${esc(a.adtor || "-")}</td><td>${esc(a.adt_opinion || "-")}</td><td>${esc(a.emphs_matter || "-")}</td></tr>`).join("")}</table>`
+      : `<p class="gap">감사의견 자료를 받지 못했거나 없다.</p>`}
+    ${funds.length ? `<table><caption>공모·사모 자금 사용 · ${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준</caption><tr><th>구분</th><th>계획 용도</th><th class="r">계획</th><th class="r">사용</th><th>차이 사유</th></tr>
+      ${funds.map(f => `<tr><td>${f.kind} ${esc(f.tm || "")}</td><td>${esc(f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-")}</td><td class="r">${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))}</td><td class="r">${eok(toNum(f.real_cptal_use_dtls_amount))}</td><td>${esc(f.dffrnc_occrrnc_resn || "-")}</td></tr>`).join("")}</table>` : ""}
+    ${(D.cb || []).length ? `<table><caption>전환사채 발행 결정 (최근 1년)</caption><tr><th>회차</th><th class="r">권면총액</th><th class="r">전환가액</th><th>공시</th></tr>
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="r">${eok(toNum(b.bd_fta))}</td><td class="r">${esc(b.cv_prc || "-")}</td><td><a href="${dartLink(b.rcept_no)}">원문</a></td></tr>`).join("")}</table>` : ""}
+    <p class="src">금액은 억원 단위로 반올림했다. 정확한 값은 각 공시 원문을 따른다.</p></section>`);
+
+  // PART: 남은 질문
+  const qs = FACTS.filter(f => f.on && f.kind === "미확인" && f.text.trim());
+  const crit = [["누가 가장 이익인가", $("#cGain").value], ["누가 가장 손해인가", $("#cLoss").value], ["과정이 공정한가", $("#cFair").value]].filter(([, v]) => v.trim());
+  if (qs.length || crit.length) H.push(`<section>${tag(true)}<h2><span class="n">${roman[part - 1]}</span>남은 질문</h2>
+    <p>공시만으로는 답할 수 없어 회사에 확인해야 하는 질문이다. 이 노트는 회사의 행위가 정상인지 아닌지를 판단하지 않는다.</p>
+    ${qs.length ? `<ol class="qs">${qs.map(f => `<li><b>${esc((f.topic || "질문").replace(/\s*관련$/, ""))}</b>${esc(f.text)}</li>`).join("")}</ol>` : ""}
+    ${crit.length ? `<div class="cmp">${crit.map(([k, v]) => `<div><h4>${k}</h4><p>${esc(v)}</p></div>`).join("")}</div>` : ""}</section>`);
+
+  // 부록
+  const used = [];
+  used.push(["company.json", "기업 개황", c.corp_name ? `${c.corp_name} · 대표 ${c.ceo_nm || "-"}` : "받지 못함"]);
+  used.push(["list.json", "최근 1년 공시 목록", `${docs.length}건 (정정 ${amend}건)`]);
+  used.push(["fnlttSinglAcnt.json", "주요 재무", ft ? `${ft.yr}년 사업보고서 · ${ft.basis}` : "받지 못함"]);
+  used.push(["accnutAdtorNmNdAdtOpinion.json", "감사인·감사의견", au.length ? `${au.length}개 사업연도` : "받지 못했거나 없음"]);
+  used.push(["pssrp/prvsrpCptalUseDtls.json", "자금 사용 내역", D.funds ? `${D.funds.yr}년 ${RC_NAME[D.funds.rc]} · ${funds.length}건` : "없거나 받지 못함"]);
+  used.push(["cvbdIsDecsn.json", "전환사채 발행 결정", `${(D.cb || []).length}건`]);
+  for (const x of D.deep || []) used.push(["원문 문구 검색", x.d.report_nm, `${x.d.rcept_no} · ${x.g.results.filter(r => r.count).length}/${x.g.results.length}개 문구 발견`]);
+  if (S && !S.error) used.push(["원문 문구 검색", S.d.report_nm, `${S.d.rcept_no} · 거래 구조 항목`]);
+  H.push(`<div class="apx mono"><h3>APPENDIX — 이 노트에 쓴 자료</h3>
+    ${used.map(([a, b, r]) => `<div class="it"><a>${esc(a)}</a> ${esc(b)}<br><span style="color:#c8c2af">→ ${esc(r)}</span></div>`).join("")}
+    ${D.errors && D.errors.length ? `<div class="it">조회하지 못한 자료(자료가 없다는 뜻이 아님): ${D.errors.map(esc).join(" · ")}</div>` : ""}
+    <div class="fine">이 노트는 DART 공시와 그 원문을 정해진 틀로 정리한 것이다. 점수·등급을 매기지 않으며, 회사의 위법·부정 여부를 판단하지 않는다. 기사에 쓸 때는 각 공시 원문과 회사 답변을 다시 확인한다.</div></div>`);
+  return `<article class="anote">${H.join("\n")}</article>`;
+}
+
+function renderNote() {
+  if (!DIAG) return;
+  $("#notePreview").innerHTML = `<style>${NOTE_CSS}</style>` + noteBody(DIAG);
+}
+function noteStandalone() {
+  const c = (DIAG && DIAG.company) || {};
+  const title = `${$("#nH1").value} ${$("#nH2").value}`.trim() || "분석 노트";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap">
+<style>body{margin:0;background:#faf8f3}${NOTE_CSS}.anote{border:0}
+@media print{.anote{padding:0 0 0;max-width:none}.anote .apx{margin:32px 0 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.anote .trk,.anote .tag,.anote .tg,.anote .callout{-webkit-print-color-adjust:exact;print-color-adjust:exact}.anote section,.anote table,.anote .callout{break-inside:avoid}}
+</style></head><body>${noteBody(DIAG).replace(/<a href="/g, '<a target="_blank" href="')}</body></html>`;
+}
+$("#btnNote").onclick = renderNote;
+["#nH1", "#nH2", "#nDeck", "#nLead"].forEach(s => $(s).addEventListener("input", () => { clearTimeout(renderNote.t); renderNote.t = setTimeout(renderNote, 300); }));
+$("#btnNoteSave").onclick = () => {
+  if (!DIAG) return;
+  const nm = shortName(DIAG.name || (DIAG.company || {}).corp_name) || "회사";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([noteStandalone()], { type: "text/html;charset=utf-8" }));
+  a.download = `${nm}_분석노트_${ymd(kstToday())}.html`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$("#btnNotePrint").onclick = () => {
+  if (!DIAG) return;
+  const w = window.open("", "_blank");
+  if (!w) { alert("팝업이 막혀 있습니다. 「HTML 파일로 저장」 후 파일을 열어 인쇄하세요."); return; }
+  w.document.open(); w.document.write(noteStandalone()); w.document.close();
+  w.onload = () => setTimeout(() => w.print(), 300);
+};
+$("#steps").addEventListener("click", (e) => { if (e.target.dataset.step === "5" && DIAG) { if (NOTE.cc !== DIAG.cc) initNote(DIAG); renderNote(); } });
 
 async function copy(text, btn) {
   try { await navigator.clipboard.writeText(text); }
