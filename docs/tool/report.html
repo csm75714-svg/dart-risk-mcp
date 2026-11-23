@@ -282,13 +282,19 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&
 const lsGet = (k, d = "") => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* 사생활 모드 */ } };
 const squash = (s) => String(s || "").replace(/\s+/g, "");
+/** DART 제목은 칸 맞춤용 공백이 길게 붙어 온다(「기타시장안내              (…)」) — 한 칸으로 접는다. */
+const tidyTitle = (s) => String(s || "").replace(/\s+/g, " ").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")").trim();
+/** 여러 줄 보고 사유를 한 줄로 — 줄마다 앞의 「- 」·번호 공백을 걷고 「 / 」로 잇는다. */
+const tidyLines = (s) => String(s || "").split(/\r?\n/).map(x => x.replace(/^\s*-\s*/, "").replace(/\s+/g, " ").trim()).filter(Boolean).join(" / ");
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 function kstToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
 function addDays(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 const ymd = (iso) => iso.replace(/-/g, "");
-const josa = (w, a, b) => { const ch = String(w || "").trim().slice(-1); const code = ch.charCodeAt(0) - 0xac00; if (code < 0 || code > 11171) return a + "(" + b + ")"; return code % 28 ? a : b; };
-const josaRo = (w) => { const ch = String(w || "").trim().slice(-1); const code = ch.charCodeAt(0) - 0xac00; if (code < 0 || code > 11171) return "(으)로"; const t = code % 28; return t && t !== 8 ? "으로" : "로"; };
+/** 끝 글자 — 숫자는 읽는 소리로(「임00」은 「영」으로 끝난다). 조사 고를 때만 쓴다. */
+const lastSyl = (w) => { const ch = String(w || "").trim().slice(-1); return /[0-9]/.test(ch) ? "영일이삼사오육칠팔구"[+ch] : ch; };
+const josa = (w, a, b) => { const ch = lastSyl(w); const code = ch.charCodeAt(0) - 0xac00; if (code < 0 || code > 11171) return a + "(" + b + ")"; return code % 28 ? a : b; };
+const josaRo = (w) => { const ch = lastSyl(w); const code = ch.charCodeAt(0) - 0xac00; if (code < 0 || code > 11171) return "(으)로"; const t = code % 28; return t && t !== 8 ? "으로" : "로"; };
 const shortName = (n) => String(n || "").replace(/^\s*(주식회사|\(주\))\s*/, "").replace(/\s*(주식회사|\(주\))\s*$/, "").trim();
 const fmtKo = (de) => de && de.length === 8 ? `${de.slice(0,4)}년 ${+de.slice(4,6)}월 ${+de.slice(6)}일` : "";
 const fmtDe = (de) => de && de.length === 8 ? `${de.slice(0,4)}.${de.slice(4,6)}.${de.slice(6)}` : (de || "");
@@ -548,7 +554,7 @@ $("#btnScan").onclick = async () => {
     if (!c) { c = { corp_code: d.corp_code, corp_name: d.corp_name, stock_code: d.stock_code, corp_cls: d.corp_cls, docs: [], amend: 0, hits: {} }; by.set(d.corp_code, c); }
     const ids = classify(d.report_nm).filter(id => picked.includes(id));
     if (isAmend(d.report_nm)) c.amend++;
-    if (ids.length) { c.docs.push({ ...d, rules: ids }); ids.forEach(id => c.hits[id] = (c.hits[id] || 0) + 1); }
+    if (ids.length) { c.docs.push({ ...d, report_nm: tidyTitle(d.report_nm), rules: ids }); ids.forEach(id => c.hits[id] = (c.hits[id] || 0) + 1); }
   }
   // 「공시 신뢰성」— 같은 기간 정정 3건 이상
   if (picked.includes("reliability")) for (const c of by.values()) if (c.amend >= 3) c.hits.reliability = c.hits.reliability || 0, c.manyAmend = true;
@@ -602,6 +608,20 @@ async function deepCheck(i, btn) {
   });
   box.innerHTML = html.join(""); btn.disabled = false;
 }
+/** 「회사 설명」으로 실을 만한가 — 회사가 쓴 문장이어야 한다.
+ *  표 머리(「항 목 · 정정사유 · 정 정 전 · 정 정 후」), 칸 이름만 있는 줄(「3. 자금조달의 목적 · 시설자금 (원)」),
+ *  이름·숫자 데이터 줄(「윤상호 · 변경전 최대주주의 특수관계인 · 150,000 · 0.71」)은 설명이 아니다.
+ *  가장 긴 칸이 한글 15자 이상이거나 문장 끝맺음(…다. …니다 …음 …함 …임 …예정)이 있어야 남긴다. */
+function isProse(t) {
+  const s = String(t || "");
+  if (/정\s*정\s*전/.test(s) && /정\s*정\s*후/.test(s) && s.replace(/[^가-힣]/g, "").length < 30) return false;
+  const parts = s.split(" · ");
+  const longest = Math.max(...parts.map(x => x.replace(/[^가-힣]/g, "").length));
+  if (longest >= 15) return true;
+  return parts.some(x => x.replace(/[^가-힣]/g, "").length >= 6 && /(다|니다|음|함|임|됨|예정)\s*[.)]?\s*$/.test(x.trim()));
+}
+/** 같은 말인지 — 공백·기호를 지우고 한쪽이 다른 쪽을 품으면 같은 문장으로 본다. */
+const sameText = (a, b) => { const x = String(a).replace(/[^가-힣0-9A-Za-z]/g, ""), y = String(b).replace(/[^가-힣0-9A-Za-z]/g, ""); return !!x && !!y && (x.includes(y) || y.includes(x)); };
 /** 원문 검색 결과 문장 정리 — 표 한 줄(「| 운영자금 (원) | - |」)은 문장이 아니다.
  *  칸을 「 · 」로 잇고, 값이 빈 칸·「-」뿐이라 뜻이 남지 않으면 버린다(null). */
 function cleanHit(t) {
@@ -659,7 +679,7 @@ async function runDiag(cc, name) {
     const f = await dart("list.json", { ...base, page_no: "1" });
     let list = f.list || [];
     for (let p = 2; p <= Math.min(f.total_page || 1, 5); p++) list = list.concat((await dart("list.json", { ...base, page_no: String(p) })).list || []);
-    return list.map(d => ({ ...d, rules: classify(d.report_nm), amend: isAmend(d.report_nm), sig: signalsOf(d.report_nm) }));
+    return list.map(d => ({ ...d, report_nm: tidyTitle(d.report_nm), rules: classify(d.report_nm), amend: isAmend(d.report_nm), sig: signalsOf(d.report_nm) }));
   }) || [];
   step(35, "재무…");
   D.fin = await safe("주요 재무", async () => {
@@ -696,7 +716,7 @@ async function runDiag(cc, name) {
   D.bulk = await safe("대량보유 보고", async () => {
     const since = ymd(addDays(today, -365));
     return ((await dart("majorstock.json", { corp_code: cc })).list || [])
-      .map(x => ({ ...x, de: String(x.rcept_dt || "").replace(/-/g, "") }))
+      .map(x => ({ ...x, report_resn: tidyLines(x.report_resn), de: String(x.rcept_dt || "").replace(/-/g, "") }))
       .filter(x => x.de >= since).sort((a, b) => b.rcept_no.localeCompare(a.rcept_no));
   }) || [];
   D.control = await safe("최대주주 변경 원문", () => loadControl(D.docs)) || [];
@@ -839,7 +859,7 @@ function renderDiag(D) {
   <div class="card">
     <h2>전환사채 발행 결정 (최근 1년)</h2>
     ${D.cb.length ? `<div class="tbl"><table><tr><th>회차</th><th class="num">권면총액</th><th class="num">전환가액</th><th class="num">최저조정가액</th><th>발행 방법</th><th>공시</th></tr>
-      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="num">${eok(toNum(b.bd_fta))}</td><td class="num">${esc(b.cv_prc || "-")}</td><td class="num">${esc(refixFloor(b))}</td><td>${esc(b.bdis_mthn || "-")}</td><td><a href="${dartLink(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>`
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td>${cbRowCells(b, D, "num")}<td>${esc(b.bdis_mthn || "-")}</td><td><a href="${dartLink(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>`
       : '<p class="dim small">최근 1년 전환사채 발행 결정이 없습니다.</p>'}
   </div>
 
@@ -854,6 +874,25 @@ function renderDiag(D) {
 }
 const RC_NAME = { "11011": "사업보고서", "11012": "반기보고서", "11013": "1분기보고서", "11014": "3분기보고서" };
 
+/** 전환사채 발행결정 한 건의 상태 — 조건 칸이 비어 있을 때 그 이유를 밝힌다.
+ *  철회: 같은 접수번호의 정정 대비표 「정정 후」에 철회가 적혀 있거나 제목에 철회가 있다.
+ *  미기재: 철회 근거는 없는데 권면총액·전환가액이 응답에 없다(없다는 뜻이 아니라 응답에 안 실렸다). */
+function cbState(b, D) {
+  const withdrawn = (D.deep || []).some(x => x.d.rcept_no === b.rcept_no && x.g.amend && (x.g.amend.rows || []).some(r => /철회/.test(r.after || "") && !/철회/.test(r.before || "")))
+    || (D.docs || []).some(d => d.rcept_no === b.rcept_no && /철회/.test(d.report_nm));
+  const blank = !toNum(b.bd_fta) && !toNum(b.cv_prc);
+  const doc = (D.docs || []).find(d => d.rcept_no === b.rcept_no);
+  const when = doc ? fmtDe(doc.rcept_dt) : "";
+  if (withdrawn) return { note: `발행 결정 철회${when ? ` (${when} 정정 공시)` : ""}`, withdrawn: true };
+  if (blank) return { note: "발행 조건이 DART 응답에 없음 — 원문 확인", withdrawn: false };
+  return null;
+}
+const cbRowCells = (b, D, num) => { const st = cbState(b, D);
+  return st ? `<td colspan="3" class="small">${esc(st.note)}</td>`
+    : `<td class="${num}">${eok(toNum(b.bd_fta))}</td><td class="${num}">${esc(b.cv_prc || "-")}</td><td class="${num}">${esc(refixFloor(b))}</td>`; };
+const cbBundleLine = (b, D) => { const st = cbState(b, D);
+  return `- ${b.bd_tm || "-"}회차 · ${st ? st.note : `권면총액 ${eok(toNum(b.bd_fta))} · 전환가액 ${b.cv_prc || "-"} · 최저조정가액 ${refixFloor(b)}`} · 접수번호 ${b.rcept_no}`; };
+
 /* ───────────────────────── ③ 팩트시트 ───────────────────────── */
 const KINDS = ["확인된 사실", "회사 설명", "미확인"];
 let FACTS = [];
@@ -863,13 +902,19 @@ function buildFacts(D) {
   // prio: 질의서 ①~④에 먼저 들어갈 순서(작을수록 먼저). 기본 체크는 이 순서로 4개까지.
   const add = (kind, text, src, on = false, topic = "", prio = 5) => F.push({ kind, text, src, on, topic, prio });
   let firstRule = true;
-  // 1) 유형별 핵심 공시(확인된 사실)
+  // 1) 유형별 핵심 공시(확인된 사실) — 유형마다 가장 최근 공시. 여러 유형의 최근 공시가 같은 건이면
+  //    한 줄로 묶는다(같은 공시가 「확인된 사실」에 두 번 나오지 않게).
+  const byDoc = new Map();
   for (const r of RULES) {
     const a = docs.filter(d => d.rules.includes(r.id)).sort((x, y) => x.rcept_no.localeCompare(y.rcept_no));
     if (!a.length) continue;
     const last = a[a.length - 1];
+    if (!byDoc.has(last.rcept_no)) byDoc.set(last.rcept_no, { d: last, kinds: [] });
+    byDoc.get(last.rcept_no).kinds.push(`「${r.label}」 ${a.length}건`);
+  }
+  for (const { d: last, kinds } of byDoc.values()) {
     const nm = shortName(D.name || c.corp_name);
-    add("확인된 사실", `${nm}${josa(nm, "은", "는")} ${fmtKo(last.rcept_dt)} '${last.report_nm}' 공시를 냈다${a.length > 1 ? `(최근 1년 같은 유형 공시 ${a.length}건)` : ""}.`,
+    add("확인된 사실", `${nm}${josa(nm, "은", "는")} ${fmtKo(last.rcept_dt)} '${last.report_nm}' 공시를 냈다. 최근 1년 ${kinds.join(", ")} 가운데 가장 최근 공시다.`,
       { title: last.report_nm, rcp: last.rcept_no, de: last.rcept_dt }, true, "", firstRule ? 1 : 4);
     firstRule = false;
   }
@@ -879,9 +924,9 @@ function buildFacts(D) {
   // 3) 원문 문장(회사 설명)
   const seenSent = new Set(); let firstSaid = true;
   for (const x of D.deep || []) for (const r of x.g.results) for (const h0 of r.hits.slice(0, 3)) {
-    const text = cleanHit(h0.text); if (!text) continue;
+    const text = cleanHit(h0.text); if (!text || !isProse(text)) continue;
     const h = { ...h0, text };
-    if (seenSent.has(h.text)) continue; seenSent.add(h.text);
+    if ([...seenSent].some(t => sameText(t, h.text))) continue; seenSent.add(h.text);
     add("회사 설명", h.text, { title: x.d.report_nm + (h.heading ? ` · ${h.heading}` : ""), rcp: x.d.rcept_no, de: x.d.rcept_dt }, firstSaid, "", 2);
     firstSaid = false;
   }
@@ -897,8 +942,10 @@ function buildFacts(D) {
   if (latest) {
     const x = latest.x, src = { title: latest.d.report_nm, rcp: latest.d.rcept_no, de: latest.d.rcept_dt };
     add("확인된 사실", `${fmtKo(latest.d.rcept_dt)} ${latest.d.amend ? "정정 공시한 " : ""}'${latest.d.report_nm}' 기준 최대주주는 ${x.prev_holder || "(변경 전 미기재)"}에서 ${x.new_holder}${x.new_ratio ? `(소유비율 ${x.new_ratio}%)` : ""}${josaRo(x.new_holder)} 바뀌었다.`, src, true, "", 1);
-    add("확인된 사실", `같은 공시의 인수자금 조달방법은 자기자금 ${won(x.self_fund)}, 차입금 ${won(x.borrowed_fund)}${x.lender ? `(차입처 ${x.lender})` : ""}${x.collateral ? `, 담보 내역 ${x.collateral}` : ""}로 적혀 있다.`, src, false, "", 3);
-    if (x.reason) add("회사 설명", `변경 사유: ${x.reason}`, src, true, "", 2);
+    if (x.self_fund == null && x.borrowed_fund == null && !x.lender && !x.collateral)
+      add("확인된 사실", "같은 공시의 인수자금 조달방법 칸(자기자금·차입금·차입처·담보 내역)은 모두 비어 있다(「-」).", src, false, "", 3);
+    else add("확인된 사실", `같은 공시의 인수자금 조달방법은 자기자금 ${won(x.self_fund)}, 차입금 ${won(x.borrowed_fund)}${x.lender ? `(차입처 ${x.lender})` : ""}${x.collateral ? `, 담보 내역 ${x.collateral}` : ""}로 적혀 있다.`, src, false, "", 3);
+    if (x.reason && !F.some(f => f.kind === "회사 설명" && sameText(f.text, x.reason))) add("회사 설명", `변경 사유: ${x.reason}`, src, true, "", 2);
     const n = (D.control[0] && D.control[0].amendCount) || 0;
     if (n) add("미확인", `최대주주 변경 공시를 ${n}차례 정정한 이유와, 정정으로 바뀐 항목은 무엇입니까?`, { title: "질문 틀 · 최대주주·경영권 변동" }, false, "최대주주 변경 정정");
   }
@@ -1210,7 +1257,7 @@ function noteBody(D) {
     ${funds.length ? `<table><caption>공모·사모 자금 사용 · ${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준</caption><tr><th>구분</th><th>계획 용도</th><th class="r">계획</th><th class="r">사용</th><th>차이 사유</th></tr>
       ${funds.map(f => `<tr><td>${f.kind} ${esc(f.tm || "")}</td><td>${esc(f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-")}</td><td class="r">${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))}</td><td class="r">${eok(toNum(f.real_cptal_use_dtls_amount))}</td><td>${esc(f.dffrnc_occrrnc_resn || "-")}</td></tr>`).join("")}</table>` : ""}
     ${(D.cb || []).length ? `<table><caption>전환사채 발행 결정 (최근 1년)</caption><tr><th>회차</th><th class="r">권면총액</th><th class="r">전환가액</th><th class="r">최저조정가액</th><th>공시</th></tr>
-      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="r">${eok(toNum(b.bd_fta))}</td><td class="r">${esc(b.cv_prc || "-")}</td><td class="r">${esc(refixFloor(b))}</td><td><a href="${dartLink(b.rcept_no)}">원문</a></td></tr>`).join("")}</table>` : ""}
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td>${cbRowCells(b, D, "r")}<td><a href="${dartLink(b.rcept_no)}">원문</a></td></tr>`).join("")}</table>` : ""}
     <p class="src">금액은 억원 단위로 반올림했다. 정확한 값은 각 공시 원문을 따른다.</p></section>`);
 
   // PART: 최대주주 · 대량보유
@@ -1396,7 +1443,7 @@ function articleMaterial(D) {
     D.bulk.slice(0, 12).forEach(b => L.push(`- ${fmtDe(b.de)} ${b.repror || "-"} · ${b.stkqy || "-"}주 · ${b.stkrt || "-"}% (증감 ${b.stkrt_irds || "-"}%p) · 보고 사유: ${b.report_resn || "-"} · 접수번호 ${b.rcept_no}`));
     if (D.bulk.length > 12) L.push(`- 외 ${D.bulk.length - 12}건`);
   }
-  if ((D.cb || []).length) { L.push(""); L.push("■ 전환사채 발행 결정 (최근 1년)"); D.cb.forEach(b => L.push(`- ${b.bd_tm || "-"}회차 · 권면총액 ${eok(toNum(b.bd_fta))} · 전환가액 ${b.cv_prc || "-"} · 최저조정가액 ${refixFloor(b)} · 접수번호 ${b.rcept_no}`)); }
+  if ((D.cb || []).length) { L.push(""); L.push("■ 전환사채 발행 결정 (최근 1년)"); D.cb.forEach(b => L.push(cbBundleLine(b, D))); }
   const qs = FACTS.filter(f => f.kind === "미확인" && f.on && f.text.trim());
   L.push(""); L.push("■ 아직 확인되지 않은 사항 (질의서 질문)");
   if (!qs.length) L.push("- (없음)");
