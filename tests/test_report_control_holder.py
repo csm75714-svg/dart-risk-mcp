@@ -137,3 +137,55 @@ def test_대량보유_보고자를_최대주주라_단정하지_않는다():
 def test_controlDetail은_이용자_키만_보낸다():
     fn = _cut_fn("controlDetail")
     assert '"X-DART-Key": key()' in fn and "/api/control" in fn
+
+
+# ── 정정 대비표 · 리픽싱 최저조정가액 (꼭 필요한 두 가지만 덧붙임) ─────────────
+
+from tool_server.grep import MAX_AMEND_ROWS, find_amend_table  # noqa: E402
+
+_AMEND_MD = """정정신고(보고)
+| 3. 정정사유 | 납입일 변경 |
+| 정 정 항 목 | 정 정 전 | 정 정 후 |
+| --- | --- | --- |
+| 5. 자금조달의 목적 - 운영자금 | 5,000,000,000 | 3,000,000,000 |
+|  - 채무상환자금 | - | 2,000,000,000 |
+
+본문 | 이어짐"""
+
+
+def test_정정_대비표를_칸으로_읽는다():
+    a = find_amend_table(_AMEND_MD)
+    assert a["reason"] == "납입일 변경"
+    assert a["rows"][0] == {"item": "5. 자금조달의 목적 - 운영자금", "before": "5,000,000,000", "after": "3,000,000,000"}
+    assert a["total"] == 2
+
+
+def test_정정전_정정후가_둘_다_없는_표는_읽지_않는다():
+    assert find_amend_table("| 항목 | 정정전 |\n| a | b |")["rows"] == []
+
+
+def test_정정_대비표_상한은_건수를_밝힌다():
+    body = "\n".join(f"| 항목{i} | {i} | {i+1} |" for i in range(MAX_AMEND_ROWS + 5))
+    a = find_amend_table("| 항목 | 정정전 | 정정후 |\n| --- | --- | --- |\n" + body)
+    assert len(a["rows"]) == MAX_AMEND_ROWS and a["total"] == MAX_AMEND_ROWS + 5
+    assert "행 생략" in REPORT
+
+
+def test_grep_응답에_정정_대비표가_실린다(monkeypatch):
+    import tool_server.grep as g
+    monkeypatch.setattr(g, "fetch_full_text", lambda *a: (_AMEND_MD, ["a.xml"]))
+    status, body = g.handle_grep({"rcept_no": "20261120900976", "q": "운영자금"}, "k")
+    assert status == 200 and body["amend"]["total"] == 2
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_최저조정가액_비율은_소수_두_자리다():
+    code = (_cut_fn("toNum") + "\n" + _cut_fn("refixFloor")
+            + '\nconsole.log(refixFloor({act_mktprcfl_cvprc_lwtrsprc:"1,203",cv_prc:"1,719"}));'
+            + '\nconsole.log(refixFloor({cv_prc:"1,719"}));')
+    out = subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout.split("\n")
+    assert out[0] == "1,203원 (69.98%)" and out[1] == "-"
+
+
+def test_최저조정가액은_진단_노트_묶음_세_곳에_있다():
+    assert REPORT.count("refixFloor(b)") - REPORT.count("function refixFloor(b)") == 3

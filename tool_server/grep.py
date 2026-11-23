@@ -136,6 +136,77 @@ def fetch_full_text(rcept_no: str, api_key: str) -> tuple[str, list[str]]:
         zf.close()
 
 
+# ── 정정 대비표 ───────────────────────────────────────────────────────────────
+# 정정 공시는 맨 앞에 「정정사항」 표(정정항목 · 정정전 · 정정후)가 온다. 문장
+# 검색으로는 칸이 흩어져 「무엇이 바뀌었나」가 안 보인다(모아라이프플러스
+# 2026-11 — 「자금조달 결정 정정」 23건이 실제로 무엇을 고쳤는지 알 수 없었다).
+# 이미 받아 온 원문에서 그 표만 다시 읽는다 — 추가 DART 호출은 없다.
+# ⚠ 머리 칸에 「정정전」·「정정후」가 **둘 다** 있는 표만 읽는다. 그 밖의 표는
+# 정정 대비표가 아니다. 못 찾으면 빈 목록이다(표가 없다는 뜻이 아니다 — 서식이
+# 다를 수 있다).
+MAX_AMEND_ROWS = 12
+AMEND_CELL_CHARS = 200
+
+
+def _cells(line: str) -> list[str]:
+    s = line.strip()
+    if not s.startswith("|"):
+        return []
+    return [c.strip() for c in s.strip("|").split("|")]
+
+
+def _is_sep(cells: list[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{2,}:?", c or "--") for c in cells)
+
+
+def _clip(s: str) -> str:
+    s = re.sub(r"\s+", " ", s).strip()
+    return s if len(s) <= AMEND_CELL_CHARS else s[:AMEND_CELL_CHARS] + "…"
+
+
+def find_amend_table(text: str) -> dict:
+    """원문에서 정정 대비표를 찾는다 → {"rows": [{item, before, after}], "total", "reason"}."""
+    lines = text.split("\n")
+    rows: list[dict] = []
+    total = 0
+    reason = ""
+    i = 0
+    while i < len(lines):
+        cells = _cells(lines[i])
+        sq = [_squash(c) for c in cells]
+        # 정정사유 칸: 「정정사유」 다음 칸의 값
+        for k, c in enumerate(sq):
+            if not reason and c.endswith("정정사유") and k + 1 < len(cells) and cells[k + 1].strip():
+                reason = _clip(cells[k + 1])
+        bi = next((k for k, c in enumerate(sq) if c == "정정전"), None)
+        ai = next((k for k, c in enumerate(sq) if c == "정정후"), None)
+        if bi is None or ai is None or ai <= bi:
+            i += 1
+            continue
+        j = i + 1
+        while j < len(lines):
+            line = lines[j]
+            if not line.strip():
+                j += 1
+                continue
+            rc = _cells(line)
+            if not rc:
+                break
+            if _is_sep(rc):
+                j += 1
+                continue
+            if len(rc) > ai:
+                item = " · ".join(c for c in rc[:bi] if c.strip())
+                before, after = rc[bi].strip(), rc[ai].strip()
+                if before or after:
+                    total += 1
+                    if len(rows) < MAX_AMEND_ROWS:
+                        rows.append({"item": _clip(item), "before": _clip(before), "after": _clip(after)})
+            j += 1
+        i = j
+    return {"rows": rows, "total": total, "reason": reason}
+
+
 def handle_grep(query: dict, api_key: str) -> tuple[int, dict]:
     """(status, body). query 예: {"rcept_no": "...", "q": "이해상충|채권자 지위"}."""
     if not api_key:
@@ -163,4 +234,5 @@ def handle_grep(query: dict, api_key: str) -> tuple[int, dict]:
         "rcept_no": rcept_no,
         "char_count": len(text),
         "results": find_in_text(text, terms),
+        "amend": find_amend_table(text),
     }

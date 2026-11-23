@@ -295,6 +295,17 @@ const fmtDe = (de) => de && de.length === 8 ? `${de.slice(0,4)}.${de.slice(4,6)}
 const dartLink = (rcp) => `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcp}`;
 const newsLink = (name) => `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(name)}`;
 function toNum(v) { if (v == null) return null; const s = String(v).replace(/,/g, "").trim(); if (!s || s === "-") return null; const n = Number(s); return isFinite(n) ? n : null; }
+/** 리픽싱 최저조정가액 — 발행 응답에 이미 있는 칸(추가 조회 없음). 비율은 소수 두 자리:
+ *  69.98%를 70.0%로 반올림하면 법정 하한(70%)과 화면이 어긋난다. */
+function refixFloor(b) { const f = toNum(b.act_mktprcfl_cvprc_lwtrsprc), c = toNum(b.cv_prc); if (f == null) return "-"; return `${f.toLocaleString()}원${c ? ` (${(f * 100 / c).toFixed(2)}%)` : ""}`; }
+/** 정정 대비표 — /api/grep 응답의 amend(정정 공시 앞의 정정항목·정정전·정정후 표). */
+function amendHTML(a) {
+  if (!a || !a.rows || !a.rows.length) return "";
+  return `<div class="tbl" style="margin-top:4px"><table><tr><th>정정 항목</th><th>정정 전</th><th>정정 후</th></tr>
+    ${a.rows.map(r => `<tr><td>${esc(r.item || "-")}</td><td>${esc(r.before || "-")}</td><td>${esc(r.after || "-")}</td></tr>`).join("")}</table></div>
+    ${a.reason ? `<div class="dim">정정 사유(원문): ${esc(a.reason)}</div>` : ""}
+    ${a.total > a.rows.length ? `<div class="dim">정정 대비표 ${a.total}행 중 ${a.rows.length}행 표시 · ${a.total - a.rows.length}행 생략 — 원문 확인</div>` : ""}`;
+}
 function eok(n) { if (n == null) return "-"; if (n === 0) return "0원"; const v = n / 1e8; return (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : v.toFixed(1).replace(/\.0$/, "")) + "억원"; }
 
 function me() { try { return JSON.parse(lsGet(LS_ME, "{}")) || {}; } catch (e) { return {}; } }
@@ -609,7 +620,8 @@ function grepHTML(d, g) {
   return `<div class="small" style="margin-top:6px"><b>${esc(d.report_nm)}</b> <span class="dim">(${fmtDe(d.rcept_dt)}, 원문 ${g.char_count.toLocaleString()}자)</span>
     ${found.map(r => r.hits.map(h => `<div class="hit"><b>「${esc(r.term)}」</b> ${h.heading ? `<span class="dim">${esc(h.heading)} · </span>` : ""}${esc(h.text)} <span class="dim">(문서 ${h.pos}% 지점)</span></div>`).join("")
       + (r.count > r.hits.length ? `<div class="dim">… 「${esc(r.term)}」 ${r.count - r.hits.length}곳 더</div>` : "")).join("")}
-    ${none.length ? `<div class="dim">없음: ${none.map(esc).join(", ")}</div>` : ""}</div>`;
+    ${none.length ? `<div class="dim">없음: ${none.map(esc).join(", ")}</div>` : ""}
+    ${amendHTML(g.amend)}</div>`;
 }
 
 /* 회사 직접 찾기 — 뷰어의 corp-map.json(이름 → [corp_code, 종목코드]) */
@@ -826,8 +838,8 @@ function renderDiag(D) {
 
   <div class="card">
     <h2>전환사채 발행 결정 (최근 1년)</h2>
-    ${D.cb.length ? `<div class="tbl"><table><tr><th>회차</th><th class="num">권면총액</th><th class="num">전환가액</th><th>발행 방법</th><th>공시</th></tr>
-      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="num">${eok(toNum(b.bd_fta))}</td><td class="num">${esc(b.cv_prc || "-")}</td><td>${esc(b.bdis_mthn || "-")}</td><td><a href="${dartLink(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>`
+    ${D.cb.length ? `<div class="tbl"><table><tr><th>회차</th><th class="num">권면총액</th><th class="num">전환가액</th><th class="num">최저조정가액</th><th>발행 방법</th><th>공시</th></tr>
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="num">${eok(toNum(b.bd_fta))}</td><td class="num">${esc(b.cv_prc || "-")}</td><td class="num">${esc(refixFloor(b))}</td><td>${esc(b.bdis_mthn || "-")}</td><td><a href="${dartLink(b.rcept_no)}" target="_blank" rel="noopener">원문</a></td></tr>`).join("")}</table></div>`
       : '<p class="dim small">최근 1년 전환사채 발행 결정이 없습니다.</p>'}
   </div>
 
@@ -872,6 +884,12 @@ function buildFacts(D) {
     if (seenSent.has(h.text)) continue; seenSent.add(h.text);
     add("회사 설명", h.text, { title: x.d.report_nm + (h.heading ? ` · ${h.heading}` : ""), rcp: x.d.rcept_no, de: x.d.rcept_dt }, firstSaid, "", 2);
     firstSaid = false;
+  }
+  // 3-0) 정정 대비표 — 「정정했다」를 넘어 무엇이 바뀌었는지(원문 표 그대로, 앞의 세 항목만)
+  for (const x of D.deep || []) {
+    const a = x.g.amend; if (!a || !a.rows || !a.rows.length) continue;
+    const items = a.rows.slice(0, 3).map(r => `${r.item || "항목 미기재"}(정정 전 ${r.before || "-"} → 정정 후 ${r.after || "-"})`).join(", ");
+    add("확인된 사실", `${fmtKo(x.d.rcept_dt)} '${x.d.report_nm}'의 정정 대비표에서 바뀐 항목은 ${items}${a.total > 3 ? ` 등 ${a.total}개 행` : ""}이다.`, { title: x.d.report_nm + " · 정정 대비표", rcp: x.d.rcept_no, de: x.d.rcept_dt }, false, "", 3);
   }
   // 3-1) 최대주주 변경 원문 표 · 대량보유 보고
   const ctrl = (D.control || []).filter(c => c.x && c.x.found);
@@ -1191,8 +1209,8 @@ function noteBody(D) {
       : `<p class="gap">감사의견 자료를 받지 못했거나 없다.</p>`}
     ${funds.length ? `<table><caption>공모·사모 자금 사용 · ${D.funds.yr}년 ${RC_NAME[D.funds.rc]} 기준</caption><tr><th>구분</th><th>계획 용도</th><th class="r">계획</th><th class="r">사용</th><th>차이 사유</th></tr>
       ${funds.map(f => `<tr><td>${f.kind} ${esc(f.tm || "")}</td><td>${esc(f.rs_cptal_use_plan_useprps || f.mtrpt_cptal_use_plan_useprps || "-")}</td><td class="r">${eok(toNum(f.rs_cptal_use_plan_prcure_amount || f.mtrpt_cptal_use_plan_prcure_amount))}</td><td class="r">${eok(toNum(f.real_cptal_use_dtls_amount))}</td><td>${esc(f.dffrnc_occrrnc_resn || "-")}</td></tr>`).join("")}</table>` : ""}
-    ${(D.cb || []).length ? `<table><caption>전환사채 발행 결정 (최근 1년)</caption><tr><th>회차</th><th class="r">권면총액</th><th class="r">전환가액</th><th>공시</th></tr>
-      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="r">${eok(toNum(b.bd_fta))}</td><td class="r">${esc(b.cv_prc || "-")}</td><td><a href="${dartLink(b.rcept_no)}">원문</a></td></tr>`).join("")}</table>` : ""}
+    ${(D.cb || []).length ? `<table><caption>전환사채 발행 결정 (최근 1년)</caption><tr><th>회차</th><th class="r">권면총액</th><th class="r">전환가액</th><th class="r">최저조정가액</th><th>공시</th></tr>
+      ${D.cb.map(b => `<tr><td>${esc(b.bd_tm || "-")}</td><td class="r">${eok(toNum(b.bd_fta))}</td><td class="r">${esc(b.cv_prc || "-")}</td><td class="r">${esc(refixFloor(b))}</td><td><a href="${dartLink(b.rcept_no)}">원문</a></td></tr>`).join("")}</table>` : ""}
     <p class="src">금액은 억원 단위로 반올림했다. 정확한 값은 각 공시 원문을 따른다.</p></section>`);
 
   // PART: 최대주주 · 대량보유
@@ -1378,7 +1396,7 @@ function articleMaterial(D) {
     D.bulk.slice(0, 12).forEach(b => L.push(`- ${fmtDe(b.de)} ${b.repror || "-"} · ${b.stkqy || "-"}주 · ${b.stkrt || "-"}% (증감 ${b.stkrt_irds || "-"}%p) · 보고 사유: ${b.report_resn || "-"} · 접수번호 ${b.rcept_no}`));
     if (D.bulk.length > 12) L.push(`- 외 ${D.bulk.length - 12}건`);
   }
-  if ((D.cb || []).length) { L.push(""); L.push("■ 전환사채 발행 결정 (최근 1년)"); D.cb.forEach(b => L.push(`- ${b.bd_tm || "-"}회차 · 권면총액 ${eok(toNum(b.bd_fta))} · 전환가액 ${b.cv_prc || "-"} · 접수번호 ${b.rcept_no}`)); }
+  if ((D.cb || []).length) { L.push(""); L.push("■ 전환사채 발행 결정 (최근 1년)"); D.cb.forEach(b => L.push(`- ${b.bd_tm || "-"}회차 · 권면총액 ${eok(toNum(b.bd_fta))} · 전환가액 ${b.cv_prc || "-"} · 최저조정가액 ${refixFloor(b)} · 접수번호 ${b.rcept_no}`)); }
   const qs = FACTS.filter(f => f.kind === "미확인" && f.on && f.text.trim());
   L.push(""); L.push("■ 아직 확인되지 않은 사항 (질의서 질문)");
   if (!qs.length) L.push("- (없음)");
