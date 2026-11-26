@@ -155,7 +155,7 @@ pre.out{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 
   <div class="card" id="candCard" style="display:none">
     <h2>후보 목록 <span class="dim small" id="candCount"></span></h2>
-    <p class="small dim">걸린 유형이 많은 순서입니다. 「보도 확인」으로 최근 기사부터 보세요 — 같은 각도의 기사가 최근 3개월에 3곳 이상이면 건너뛰는 편이 낫습니다.</p>
+    <p class="small dim">최근 공시가 있는 회사부터 보여 줍니다(같으면 걸린 유형이 많은 순). 「보도 확인」으로 최근 기사부터 보세요 — 같은 각도의 기사가 최근 3개월에 3곳 이상이면 건너뛰는 편이 낫습니다.</p>
     <div class="tbl"><table id="candTbl"></table></div>
   </div>
 </section>
@@ -568,8 +568,11 @@ $("#btnScan").onclick = async () => {
   }
   // 「공시 신뢰성」— 같은 기간 정정 3건 이상
   if (picked.includes("reliability")) for (const c of by.values()) if (c.amend >= 3) c.hits.reliability = c.hits.reliability || 0, c.manyAmend = true;
+  // 최신순 — 회사의 가장 최근 공시 접수번호(앞 8자리가 접수일)가 늦은 회사부터. 같으면 걸린 유형이 많은 순.
+  const lastNo = c => c.docs.reduce((m, d) => d.rcept_no > m ? d.rcept_no : m, "");
+  for (const c of by.values()) c.docs.sort((x, y) => y.rcept_no.localeCompare(x.rcept_no));
   CANDS = [...by.values()].filter(c => Object.keys(c.hits).length)
-    .sort((a, b) => Object.keys(b.hits).length - Object.keys(a.hits).length || b.docs.length - a.docs.length);
+    .sort((a, b) => lastNo(b).localeCompare(lastNo(a)) || Object.keys(b.hits).length - Object.keys(a.hits).length);
   btn.disabled = false; setTimeout(() => bar.style.display = "none", 400);
   $("#scanInfo").textContent = `공시 ${all.length.toLocaleString()}건을 읽었습니다.`;
   renderCands();
